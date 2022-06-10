@@ -111,8 +111,6 @@ class TufValidation
 	{
 		$db = Factory::getContainer()->get(DatabaseDriver::class);
 
-		// $db = Factory::getDbo();
-
 		$fileFetcher = GuzzleFileFetcher::createFromUri($this->params['url_prefix'], $this->params['metadata_path'], $this->params['targets_path']);
 		$updater = new Updater(
 			$fileFetcher,
