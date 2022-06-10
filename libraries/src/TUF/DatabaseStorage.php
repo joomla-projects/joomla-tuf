@@ -51,7 +51,7 @@ class DatabaseStorage implements \ArrayAccess
 	{
 		$column = $this->getCleanColumn($offset);
 
-		return substr($offset, -5) === '_json' && $this->table->hasField($column) && strlen($this->table->$column);
+		return substr($offset, -5) === '_json' && $this->table->hasField($column) && !is_null($this->table->$column);
 	}
 
 	/**
@@ -88,7 +88,9 @@ class DatabaseStorage implements \ArrayAccess
 			throw new RoleNotFoundException;
 		}
 
-		$this->table->$offset = $value;
+		$column = $this->getCleanColumn($offset);
+
+		$this->table->$column = $value;
 
 		$this->table->store();
 	}
@@ -107,9 +109,11 @@ class DatabaseStorage implements \ArrayAccess
 			throw new RoleNotFoundException;
 		}
 
-		$this->table->$offset = '';
+		$column = $this->getCleanColumn($offset);
 
-		$this->table->store();
+		$this->table->$column = null;
+
+		$this->table->store(true);
 	}
 
 	/**
