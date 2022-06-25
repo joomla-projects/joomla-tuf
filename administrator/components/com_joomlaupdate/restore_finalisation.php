@@ -5,186 +5,33 @@
  *
  * @copyright   (C) 2016 Open Source Matters, Inc. <https://www.joomla.org>
  * @license     GNU General Public License version 2 or later; see LICENSE.txt
+ *
+ * IMPORTANT! DO NOT REMOVE THIS FILE.
+ *
+ * This file is required for updating from Joomla 3.x and older 4.x versions to 4.0.4
+ * and later versions.
+ *
+ * The reason is that old versions of Joomla use an older version of Joomla Update which is still
+ * using an old and unmaintained version of Akeeba Restore to extract the update ZIP file. Akeeba
+ * Restore will always try to include the file restore_finalisation.php at the end of the archive
+ * extraction to let the just extracted version of Joomla run its post-extraction code which
+ * removes obsolete files and allows the new version of Joomla to actually load. As a result every
+ * new version of Joomla which needs to provide an upgrade path from Joomla 3.x or old versions of
+ * Joomla 4.0 needs to include this file.
+ *
+ * This file can be safely removed once a new Joomla version is released which no longer provides an
+ * update path from Joomla 3.x and older Joomla 4.0 versions. In theory, that would be Joomla 6.0 or
+ * later.
+ *
+ * In practice, this might be sooner. Due to changes scheduled for PHP 9 (still in the planning
+ * stage at the time of this writing, August 2021) the old version of Akeeba Restore is very likely
+ * to stop working on newer PHP versions. As a result updating from the old versions of Joomla to
+ * newer versions of Joomla with a minimum requirement of PHP 9 will not be possible. Therefore this
+ * file can be removed when a Joomla version with a minimum requirement of PHP 9 will be released,
+ * even if it nominally supports updating from older Joomla 4.0 versions. These versions will be
+ * able to update to newer Joomla versions using the CLI updater.
  */
 
-// Require the restoration environment or fail cold. Prevents direct web access.
-defined('_AKEEBA_RESTORATION') or die();
+define('_JOOMLA_UPDATE', 1);
 
-// Fake a miniature Joomla environment
-if (!defined('_JEXEC'))
-{
-	define('_JEXEC', 1);
-}
-
-if (!function_exists('jimport'))
-{
-	/**
-	 * We don't use it but the post-update script is using it anyway, so LET'S FAKE IT!
-	 *
-	 * @param   string  $path  A dot syntax path.
-	 * @param   string  $base  Search this directory for the class.
-	 *
-	 * @return  boolean  True on success.
-	 *
-	 * @since   3.5.1
-	 */
-	function jimport($path, $base = null)
-	{
-		// Do nothing
-	}
-}
-
-// Fake the JFile class, mapping it to Restore's post-processing class
-if (!class_exists('JFile'))
-{
-	/**
-	 * JFile mock class proxing behaviour in the post-upgrade script to that of either native PHP or restore.php
-	 *
-	 * @since  3.5.1
-	 */
-	abstract class JFile
-	{
-		/**
-		 * Proxies checking a folder exists to the native php version
-		 *
-		 * @param   string  $fileName  The path to the file to be checked
-		 *
-		 * @return  boolean
-		 *
-		 * @since   3.5.1
-		 */
-		public static function exists($fileName)
-		{
-			return @file_exists($fileName);
-		}
-
-		/**
-		 * Proxies deleting a file to the restore.php version
-		 *
-		 * @param   string  $fileName  The path to the file to be deleted
-		 *
-		 * @return  boolean
-		 *
-		 * @since   3.5.1
-		 */
-		public static function delete($fileName)
-		{
-			$postproc = AKFactory::getPostProc();
-			$postproc->unlink($fileName);
-		}
-	}
-}
-
-// Fake the JFolder class, mapping it to Restore's post-processing class
-if (!class_exists('JFolder'))
-{
-	/**
-	 * JFolder mock class proxing behaviour in the post-upgrade script to that of either native PHP or restore.php
-	 *
-	 * @since  3.5.1
-	 */
-	abstract class JFolder
-	{
-		/**
-		 * Proxies checking a folder exists to the native php version
-		 *
-		 * @param   string  $folderName  The path to the folder to be checked
-		 *
-		 * @return  boolean
-		 *
-		 * @since   3.5.1
-		 */
-		public static function exists($folderName)
-		{
-			return @is_dir($folderName);
-		}
-
-		/**
-		 * Proxies deleting a folder to the restore.php version
-		 *
-		 * @param   string  $folderName  The path to the folder to be deleted
-		 *
-		 * @return  void
-		 *
-		 * @since   3.5.1
-		 */
-		public static function delete($folderName)
-		{
-			recursive_remove_directory($folderName);
-		}
-	}
-}
-
-// Fake the JText class - we aren't going to show errors to people anyhow
-if (!class_exists('JText'))
-{
-	/**
-	 * JText mock class proxing behaviour in the post-upgrade script to that of either native PHP or restore.php
-	 *
-	 * @since  3.5.1
-	 */
-	abstract class JText
-	{
-		/**
-		 * No need for translations in a non-interactive script, so always return an empty string here
-		 *
-		 * @param   string  $text  A language constant
-		 *
-		 * @return  string
-		 *
-		 * @since   3.5.1
-		 */
-		public static function sprintf($text)
-		{
-			return '';
-		}
-	}
-}
-
-if (!function_exists('finalizeRestore'))
-{
-	/**
-	 * Run part of the Joomla! finalisation script, namely the part that cleans up unused files/folders
-	 *
-	 * @param   string  $siteRoot     The root to the Joomla! site
-	 * @param   string  $restorePath  The base path to restore.php
-	 *
-	 * @return  void
-	 *
-	 * @since   3.5.1
-	 */
-	function finalizeRestore($siteRoot, $restorePath)
-	{
-		if (!defined('JPATH_ROOT'))
-		{
-			define('JPATH_ROOT', $siteRoot);
-		}
-
-		$filePath = JPATH_ROOT . '/administrator/components/com_admin/script.php';
-
-		if (file_exists($filePath))
-		{
-			require_once $filePath;
-		}
-
-		// Make sure Joomla!'s code can figure out which files exist and need be removed
-		clearstatcache();
-
-		// Remove obsolete files - prevents errors occurring in some system plugins
-		if (class_exists('JoomlaInstallerScript'))
-		{
-			$script = new JoomlaInstallerScript;
-			$script->deleteUnexistingFiles();
-		}
-
-		// Clear OPcache
-		if (function_exists('opcache_reset'))
-		{
-			opcache_reset();
-		}
-		elseif (function_exists('apc_clear_cache'))
-		{
-			@apc_clear_cache();
-		}
-	}
-}
+require_once __DIR__ . '/finalisation.php';

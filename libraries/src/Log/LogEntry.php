@@ -8,9 +8,10 @@
 
 namespace Joomla\CMS\Log;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
 use Joomla\CMS\Date\Date;
+use Joomla\CMS\Filesystem\Path;
 
 /**
  * Joomla! Log Entry class
@@ -24,6 +25,7 @@ class LogEntry
 {
 	/**
 	 * Application responsible for log entry.
+	 *
 	 * @var    string
 	 * @since  1.7.0
 	 */
@@ -39,6 +41,7 @@ class LogEntry
 
 	/**
 	 * The date the message was logged.
+	 *
 	 * @var    Date
 	 * @since  1.7.0
 	 */
@@ -46,6 +49,7 @@ class LogEntry
 
 	/**
 	 * Message to be logged.
+	 *
 	 * @var    string
 	 * @since  1.7.0
 	 */
@@ -53,6 +57,7 @@ class LogEntry
 
 	/**
 	 * The priority of the message to be logged.
+	 *
 	 * @var    string
 	 * @since  1.7.0
 	 * @see    LogEntry::$priorities
@@ -61,6 +66,7 @@ class LogEntry
 
 	/**
 	 * List of available log priority levels [Based on the Syslog default levels].
+	 *
 	 * @var    array
 	 * @since  1.7.0
 	 */
@@ -92,13 +98,15 @@ class LogEntry
 	 * @param   array   $context   An optional array with additional message context.
 	 *
 	 * @since   1.7.0
+	 * @change  3.10.7  If the message contains a full path, the root path (JPATH_ROOT) is removed from it
+	 *          to avoid any full path disclosure. Before 3.10.7, the path was propagated as provided.
 	 */
 	public function __construct($message, $priority = Log::INFO, $category = '', $date = null, array $context = array())
 	{
-		$this->message = (string) $message;
+		$this->message = Path::removeRoot((string) $message);
 
 		// Sanitize the priority.
-		if (!in_array($priority, $this->priorities, true))
+		if (!\in_array($priority, $this->priorities, true))
 		{
 			$priority = Log::INFO;
 		}
@@ -116,6 +124,6 @@ class LogEntry
 		$this->callStack = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 
 		// Get the date as a Date object.
-		$this->date = new Date($date ? $date : 'now');
+		$this->date = new Date($date ?: 'now');
 	}
 }

@@ -9,27 +9,29 @@
 
 defined('_JEXEC') or die;
 
-JLoader::import('components.com_fields.libraries.fieldslistplugin', JPATH_ADMINISTRATOR);
+use Joomla\CMS\Access\Access;
+use Joomla\CMS\Form\Form;
+use Joomla\CMS\Language\Text;
 
 /**
  * Fields Sql Plugin
  *
  * @since  3.7.0
  */
-class PlgFieldsSql extends FieldsListPlugin
+class PlgFieldsSql extends \Joomla\Component\Fields\Administrator\Plugin\FieldsListPlugin
 {
 	/**
 	 * Transforms the field into a DOM XML element and appends it as a child on the given parent.
 	 *
 	 * @param   stdClass    $field   The field.
 	 * @param   DOMElement  $parent  The field node parent.
-	 * @param   JForm       $form    The form.
+	 * @param   Form        $form    The form.
 	 *
 	 * @return  DOMElement
 	 *
 	 * @since   3.7.0
 	 */
-	public function onCustomFieldsPrepareDom($field, DOMElement $parent, JForm $form)
+	public function onCustomFieldsPrepareDom($field, DOMElement $parent, Form $form)
 	{
 		$fieldNode = parent::onCustomFieldsPrepareDom($field, $parent, $form);
 
@@ -47,16 +49,16 @@ class PlgFieldsSql extends FieldsListPlugin
 	/**
 	 * The save event.
 	 *
-	 * @param   string   $context  The context
-	 * @param   JTable   $item     The table
-	 * @param   boolean  $isNew    Is new item
-	 * @param   array    $data     The validated data
+	 * @param   string                   $context  The context
+	 * @param   \Joomla\CMS\Table\Table  $item     The table
+	 * @param   boolean                  $isNew    Is new item
+	 * @param   array                    $data     The validated data
 	 *
 	 * @return  boolean
 	 *
 	 * @since   3.7.0
 	 */
-	public function onContentBeforeSave($context, $item, $isNew, $data = array())
+	public function onContentBeforeSave($context, $item, $isNew, $data = [])
 	{
 		// Only work on new SQL fields
 		if ($context != 'com_fields.field' || !isset($item->type) || $item->type != 'sql')
@@ -65,9 +67,9 @@ class PlgFieldsSql extends FieldsListPlugin
 		}
 
 		// If we are not a super admin, don't let the user create or update a SQL field
-		if (!JAccess::getAssetRules(1)->allow('core.admin', JFactory::getUser()->getAuthorisedGroups()))
+		if (!Access::getAssetRules(1)->allow('core.admin', $this->app->getIdentity()->getAuthorisedGroups()))
 		{
-			$item->setError(JText::_('PLG_FIELDS_SQL_CREATE_NOT_POSSIBLE'));
+			$item->setError(Text::_('PLG_FIELDS_SQL_CREATE_NOT_POSSIBLE'));
 
 			return false;
 		}

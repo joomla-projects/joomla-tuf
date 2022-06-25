@@ -11,6 +11,7 @@ const _JEXEC = 1;
 
 // Import namespaced classes
 use Joomla\CMS\Application\CliApplication;
+use Joomla\CMS\Factory;
 
 // Load system defines
 if (file_exists(dirname(__DIR__) . '/defines.php'))
@@ -25,10 +26,7 @@ if (!defined('_JDEFINES'))
 }
 
 // Get the Platform with legacy libraries.
-require_once JPATH_LIBRARIES . '/import.legacy.php';
-
-// Bootstrap the CMS libraries.
-require_once JPATH_LIBRARIES . '/cms.php';
+require_once JPATH_LIBRARIES . '/bootstrap.php';
 
 // Configure error reporting to maximum for CLI output.
 error_reporting(E_ALL);
@@ -51,6 +49,8 @@ ini_set('display_errors', 1);
  */
 class StubGenerator extends CliApplication
 {
+	use \Joomla\CMS\Application\ExtensionNamespaceMapper;
+
 	/**
 	 * Entry point for CLI script
 	 *
@@ -60,6 +60,9 @@ class StubGenerator extends CliApplication
 	 */
 	public function doExecute()
 	{
+		$this->createExtensionNamespaceMap();
+		$contentsByNamespace = [];
+
 		$file = "<?php\n";
 
 		// Loop the aliases to generate the stubs data
@@ -75,18 +78,36 @@ class StubGenerator extends CliApplication
 			$modifier   = (!$reflection->isInterface() && $reflection->isFinal()) ? 'final ' : '';
 			$modifier   = ($reflection->isAbstract() && !$reflection->isInterface()) ? $modifier . 'abstract ' : $modifier;
 
+			$namespaceSegments = explode('\\', $oldName);
+			$className         = array_pop($namespaceSegments);
+			$targetNamespace   = ltrim(implode('\\', $namespaceSegments), '\\');
+
 			// If a deprecated version is available, write a stub class doc block with a deprecated tag
 			if ($deprecatedVersion !== false)
 			{
-				$file .= <<<PHP
-/**
- * @deprecated $deprecatedVersion Use $newName instead.
- */
+				$fileContents = <<<PHP
+	/**
+	 * @deprecated $deprecatedVersion Use $newName instead.
+	 */
 
 PHP;
 			}
 
-			$file .= "$modifier$type $oldName extends $newName {}\n\n";
+			$fileContents .= "\t$modifier$type $className extends \\$newName {}\n\n";
+
+			if (!array_key_exists($targetNamespace, $contentsByNamespace))
+			{
+				$contentsByNamespace[$targetNamespace] = '';
+			}
+
+			$contentsByNamespace[$targetNamespace] .= $fileContents;
+		}
+
+		foreach ($contentsByNamespace as $namespace => $contents)
+		{
+			$file .= "namespace $namespace {\n";
+			$file .= $contents;
+			$file .= "}\n\n";
 		}
 
 		// And save the file locally
@@ -94,7 +115,51 @@ PHP;
 
 		$this->out('Stubs file written', true);
 	}
+
+	/**
+	 * Gets the name of the current running application.
+	 *
+	 * @return  string  The name of the application.
+	 *
+	 * @since   4.0.0
+	 */
+	public function getName()
+	{
+		return 'cli-stubgen';
+	}
+
+	/**
+	 * Get the menu object.
+	 *
+	 * @param string $name    The application name for the menu
+	 * @param array  $options An array of options to initialise the menu with
+	 *
+	 * @throws   \BadMethodCallException  Exception thrown as CLI Application has no menu.
+	 *
+	 * @since   4.0.0
+	 */
+	public function getMenu($name = null, $options = array())
+	{
+		throw new \BadMethodCallException('CLI Application has no menu');
+	}
 }
 
-// Instantiate the application and execute it
-CliApplication::getInstance('StubGenerator')->execute();
+Factory::getContainer()->share(
+	'StubGenerator',
+	function (\Joomla\DI\Container $container)
+	{
+		return new \StubGenerator(
+			null,
+			null,
+			null,
+			null,
+			$container->get(\Joomla\Event\DispatcherInterface::class),
+			$container
+		);
+	},
+	true
+);
+
+$app = Factory::getContainer()->get('StubGenerator');
+Factory::$application = $app;
+$app->execute();

@@ -8,11 +8,32 @@
 
 namespace Joomla\CMS\MVC\Model;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
+use Joomla\CMS\Cache\CacheControllerFactoryInterface;
+use Joomla\CMS\Cache\Controller\CallbackController;
+use Joomla\CMS\Cache\Exception\CacheExceptionInterface;
+use Joomla\CMS\Component\ComponentHelper;
+use Joomla\CMS\Extension\ComponentInterface;
+use Joomla\CMS\Factory;
+use Joomla\CMS\Language\Text;
 use Joomla\CMS\MVC\Factory\LegacyFactory;
+use Joomla\CMS\MVC\Factory\MVCFactoryAwareTrait;
 use Joomla\CMS\MVC\Factory\MVCFactoryInterface;
-use Joomla\Utilities\ArrayHelper;
+use Joomla\CMS\MVC\Factory\MVCFactoryServiceInterface;
+use Joomla\CMS\Table\Table;
+use Joomla\CMS\User\CurrentUserInterface;
+use Joomla\CMS\User\CurrentUserTrait;
+use Joomla\Database\DatabaseAwareInterface;
+use Joomla\Database\DatabaseAwareTrait;
+use Joomla\Database\DatabaseInterface;
+use Joomla\Database\DatabaseQuery;
+use Joomla\Database\Exception\DatabaseNotFoundException;
+use Joomla\Event\DispatcherAwareInterface;
+use Joomla\Event\DispatcherAwareTrait;
+use Joomla\Event\DispatcherInterface;
+use Joomla\Event\Event;
+use Joomla\Event\EventInterface;
 
 /**
  * Base class for a database aware Joomla Model
@@ -21,31 +42,9 @@ use Joomla\Utilities\ArrayHelper;
  *
  * @since  2.5.5
  */
-abstract class BaseDatabaseModel extends \JObject
+abstract class BaseDatabaseModel extends BaseModel implements DatabaseModelInterface, DatabaseAwareInterface, DispatcherAwareInterface, CurrentUserInterface
 {
-	/**
-	 * Indicates if the internal state has been set
-	 *
-	 * @var    boolean
-	 * @since  3.0
-	 */
-	protected $__state_set = null;
-
-	/**
-	 * Database Connector
-	 *
-	 * @var    \JDatabaseDriver
-	 * @since  3.0
-	 */
-	protected $_db;
-
-	/**
-	 * The model (base) name
-	 *
-	 * @var    string
-	 * @since  3.0
-	 */
-	protected $name;
+	use DatabaseAwareTrait, MVCFactoryAwareTrait, DispatcherAwareTrait, CurrentUserTrait;
 
 	/**
 	 * The URL option for the component.
@@ -56,162 +55,12 @@ abstract class BaseDatabaseModel extends \JObject
 	protected $option = null;
 
 	/**
-	 * A state object
-	 *
-	 * @var    \JObject
-	 * @since  3.0
-	 */
-	protected $state;
-
-	/**
 	 * The event to trigger when cleaning cache.
 	 *
 	 * @var    string
 	 * @since  3.0
 	 */
 	protected $event_clean_cache = null;
-
-	/**
-	 * The factory.
-	 *
-	 * @var    MVCFactoryInterface
-	 * @since  3.10.0
-	 * @deprecated  4.0  This is a temporary property that will be moved into a trait in Joomla 4
-	 */
-	protected $factory;
-
-	/**
-	 * Add a directory where \JModelLegacy should search for models. You may
-	 * either pass a string or an array of directories.
-	 *
-	 * @param   mixed   $path    A path or array[sting] of paths to search.
-	 * @param   string  $prefix  A prefix for models.
-	 *
-	 * @return  array  An array with directory elements. If prefix is equal to '', all directories are returned.
-	 *
-	 * @since   3.0
-	 */
-	public static function addIncludePath($path = '', $prefix = '')
-	{
-		static $paths;
-
-		if (!isset($paths))
-		{
-			$paths = array();
-		}
-
-		if (!isset($paths[$prefix]))
-		{
-			$paths[$prefix] = array();
-		}
-
-		if (!isset($paths['']))
-		{
-			$paths[''] = array();
-		}
-
-		if (!empty($path))
-		{
-			jimport('joomla.filesystem.path');
-
-			foreach ((array) $path as $includePath)
-			{
-				if (!in_array($includePath, $paths[$prefix]))
-				{
-					array_unshift($paths[$prefix], \JPath::clean($includePath));
-				}
-
-				if (!in_array($includePath, $paths['']))
-				{
-					array_unshift($paths[''], \JPath::clean($includePath));
-				}
-			}
-		}
-
-		return $paths[$prefix];
-	}
-
-	/**
-	 * Adds to the stack of model table paths in LIFO order.
-	 *
-	 * @param   mixed  $path  The directory as a string or directories as an array to add.
-	 *
-	 * @return  void
-	 *
-	 * @since   3.0
-	 */
-	public static function addTablePath($path)
-	{
-		\JTable::addIncludePath($path);
-	}
-
-	/**
-	 * Create the filename for a resource
-	 *
-	 * @param   string  $type   The resource type to create the filename for.
-	 * @param   array   $parts  An associative array of filename information.
-	 *
-	 * @return  string  The filename
-	 *
-	 * @since   3.0
-	 */
-	protected static function _createFileName($type, $parts = array())
-	{
-		$filename = '';
-
-		switch ($type)
-		{
-			case 'model':
-				$filename = strtolower($parts['name']) . '.php';
-				break;
-		}
-
-		return $filename;
-	}
-
-	/**
-	 * Returns a Model object, always creating it
-	 *
-	 * @param   string  $type    The model type to instantiate
-	 * @param   string  $prefix  Prefix for the model class name. Optional.
-	 * @param   array   $config  Configuration array for model. Optional.
-	 *
-	 * @return  \JModelLegacy|boolean   A \JModelLegacy instance or false on failure
-	 *
-	 * @since   3.0
-	 */
-	public static function getInstance($type, $prefix = '', $config = array())
-	{
-		$type = preg_replace('/[^A-Z0-9_\.-]/i', '', $type);
-		$modelClass = $prefix . ucfirst($type);
-
-		if (!class_exists($modelClass))
-		{
-			jimport('joomla.filesystem.path');
-			$path = \JPath::find(self::addIncludePath(null, $prefix), self::_createFileName('model', array('name' => $type)));
-
-			if (!$path)
-			{
-				$path = \JPath::find(self::addIncludePath(null, ''), self::_createFileName('model', array('name' => $type)));
-			}
-
-			if (!$path)
-			{
-				return false;
-			}
-
-			require_once $path;
-
-			if (!class_exists($modelClass))
-			{
-				\JLog::add(\JText::sprintf('JLIB_APPLICATION_ERROR_MODELCLASS_NOT_FOUND', $modelClass), \JLog::WARNING, 'jerror');
-
-				return false;
-			}
-		}
-
-		return new $modelClass($config);
-	}
 
 	/**
 	 * Constructor
@@ -224,71 +73,49 @@ abstract class BaseDatabaseModel extends \JObject
 	 */
 	public function __construct($config = array(), MVCFactoryInterface $factory = null)
 	{
+		parent::__construct($config);
+
 		// Guess the option from the class name (Option)Model(View).
 		if (empty($this->option))
 		{
 			$r = null;
 
-			if (!preg_match('/(.*)Model/i', get_class($this), $r))
+			if (!preg_match('/(.*)Model/i', \get_class($this), $r))
 			{
-				throw new \Exception(\JText::_('JLIB_APPLICATION_ERROR_MODEL_GET_NAME'), 500);
+				throw new \Exception(Text::sprintf('JLIB_APPLICATION_ERROR_GET_NAME', __METHOD__), 500);
 			}
 
-			$this->option = 'com_' . strtolower($r[1]);
+			$this->option = ComponentHelper::getComponentName($this, $r[1]);
 		}
 
-		// Set the view name
-		if (empty($this->name))
-		{
-			if (array_key_exists('name', $config))
-			{
-				$this->name = $config['name'];
-			}
-			else
-			{
-				$this->name = $this->getName();
-			}
-		}
+		/**
+		 * @deprecated 5.0 Database instance is injected through the setter function,
+		 *                 subclasses should not use the db instance in constructor anymore
+		 */
+		$db = \array_key_exists('dbo', $config) ? $config['dbo'] : Factory::getDbo();
 
-		// Set the model state
-		if (array_key_exists('state', $config))
+		if ($db)
 		{
-			$this->state = $config['state'];
-		}
-		else
-		{
-			$this->state = new \JObject;
-		}
+			@trigger_error(sprintf('Database is not available in constructor in 5.0.'), E_USER_DEPRECATED);
+			$this->setDatabase($db);
 
-		// Set the model dbo
-		if (array_key_exists('dbo', $config))
-		{
-			$this->_db = $config['dbo'];
-		}
-		else
-		{
-			$this->_db = \JFactory::getDbo();
+			// Is needed, when models use the deprecated MVC DatabaseAwareTrait, as the trait is overriding the local functions
+			$this->setDbo($db);
 		}
 
 		// Set the default view search path
-		if (array_key_exists('table_path', $config))
+		if (\array_key_exists('table_path', $config))
 		{
 			$this->addTablePath($config['table_path']);
 		}
 		// @codeCoverageIgnoreStart
-		elseif (defined('JPATH_COMPONENT_ADMINISTRATOR'))
+		elseif (\defined('JPATH_COMPONENT_ADMINISTRATOR'))
 		{
 			$this->addTablePath(JPATH_COMPONENT_ADMINISTRATOR . '/tables');
 			$this->addTablePath(JPATH_COMPONENT_ADMINISTRATOR . '/table');
 		}
 
 		// @codeCoverageIgnoreEnd
-
-		// Set the internal state marker - used to ignore setting state from the request
-		if (!empty($config['ignore_request']))
-		{
-			$this->__state_set = true;
-		}
 
 		// Set the clean cache event
 		if (isset($config['event_clean_cache']))
@@ -300,7 +127,19 @@ abstract class BaseDatabaseModel extends \JObject
 			$this->event_clean_cache = 'onContentCleanCache';
 		}
 
-		$this->factory = $factory ? : new LegacyFactory;
+		if ($factory)
+		{
+			$this->setMVCFactory($factory);
+
+			return;
+		}
+
+		$component = Factory::getApplication()->bootComponent($this->option);
+
+		if ($component instanceof MVCFactoryServiceInterface)
+		{
+			$this->setMVCFactory($component->getMVCFactory());
+		}
 	}
 
 	/**
@@ -317,9 +156,15 @@ abstract class BaseDatabaseModel extends \JObject
 	 */
 	protected function _getList($query, $limitstart = 0, $limit = 0)
 	{
-		$this->getDbo()->setQuery($query, $limitstart, $limit);
+		if (\is_string($query))
+		{
+			$query = $this->getDatabase()->getQuery(true)->setQuery($query);
+		}
 
-		return $this->getDbo()->loadObjectList();
+		$query->setLimit($limit, $limitstart);
+		$this->getDatabase()->setQuery($query);
+
+		return $this->getDatabase()->loadObjectList();
 	}
 
 	/**
@@ -330,7 +175,7 @@ abstract class BaseDatabaseModel extends \JObject
 	 * then either this method must be overridden by a custom implementation at the derived Model Class
 	 * or a GROUP BY clause should be used to make the set unique.
 	 *
-	 * @param   \JDatabaseQuery|string  $query  The query.
+	 * @param   DatabaseQuery|string  $query  The query.
 	 *
 	 * @return  integer  Number of rows for query.
 	 *
@@ -338,45 +183,45 @@ abstract class BaseDatabaseModel extends \JObject
 	 */
 	protected function _getListCount($query)
 	{
-		// Use fast COUNT(*) on \JDatabaseQuery objects if there is no GROUP BY or HAVING clause:
-		if ($query instanceof \JDatabaseQuery
-			&& $query->type == 'select'
+		// Use fast COUNT(*) on DatabaseQuery objects if there is no GROUP BY or HAVING clause:
+		if ($query instanceof DatabaseQuery
+			&& $query->type === 'select'
 			&& $query->group === null
-			&& $query->union === null
-			&& $query->unionAll === null
+			&& $query->merge === null
+			&& $query->querySet === null
 			&& $query->having === null)
 		{
 			$query = clone $query;
 			$query->clear('select')->clear('order')->clear('limit')->clear('offset')->select('COUNT(*)');
 
-			$this->getDbo()->setQuery($query);
+			$this->getDatabase()->setQuery($query);
 
-			return (int) $this->getDbo()->loadResult();
+			return (int) $this->getDatabase()->loadResult();
 		}
 
 		// Otherwise fall back to inefficient way of counting all results.
 
-		// Remove the limit, offset and order parts if it's a \JDatabaseQuery object
-		if ($query instanceof \JDatabaseQuery)
+		// Remove the limit, offset and order parts if it's a DatabaseQuery object
+		if ($query instanceof DatabaseQuery)
 		{
 			$query = clone $query;
 			$query->clear('limit')->clear('offset')->clear('order');
 		}
 
-		$this->getDbo()->setQuery($query);
-		$this->getDbo()->execute();
+		$this->getDatabase()->setQuery($query);
+		$this->getDatabase()->execute();
 
-		return (int) $this->getDbo()->getNumRows();
+		return (int) $this->getDatabase()->getNumRows();
 	}
 
 	/**
-	 * Method to load and return a model object.
+	 * Method to load and return a table object.
 	 *
 	 * @param   string  $name    The name of the view
 	 * @param   string  $prefix  The class prefix. Optional.
-	 * @param   array   $config  Configuration settings to pass to \JTable::getInstance
+	 * @param   array   $config  Configuration settings to pass to Table::getInstance
 	 *
-	 * @return  \JTable|boolean  Table object or boolean false if failed
+	 * @return  Table|boolean  Table object or boolean false if failed
 	 *
 	 * @since   3.0
 	 * @see     \JTable::getInstance()
@@ -384,83 +229,12 @@ abstract class BaseDatabaseModel extends \JObject
 	protected function _createTable($name, $prefix = 'Table', $config = array())
 	{
 		// Make sure we are returning a DBO object
-		if (!array_key_exists('dbo', $config))
+		if (!\array_key_exists('dbo', $config))
 		{
-			$config['dbo'] = $this->getDbo();
+			$config['dbo'] = $this->getDatabase();
 		}
 
-		$table = $this->factory->createTable($name, $prefix, $config);
-
-		if ($table === null)
-		{
-			return false;
-		}
-
-		return $table;
-	}
-
-	/**
-	 * Method to get the database driver object
-	 *
-	 * @return  \JDatabaseDriver
-	 *
-	 * @since   3.0
-	 */
-	public function getDbo()
-	{
-		return $this->_db;
-	}
-
-	/**
-	 * Method to get the model name
-	 *
-	 * The model name. By default parsed using the classname or it can be set
-	 * by passing a $config['name'] in the class constructor
-	 *
-	 * @return  string  The name of the model
-	 *
-	 * @since   3.0
-	 * @throws  \Exception
-	 */
-	public function getName()
-	{
-		if (empty($this->name))
-		{
-			$r = null;
-
-			if (!preg_match('/Model(.*)/i', get_class($this), $r))
-			{
-				throw new \Exception(\JText::_('JLIB_APPLICATION_ERROR_MODEL_GET_NAME'), 500);
-			}
-
-			$this->name = strtolower($r[1]);
-		}
-
-		return $this->name;
-	}
-
-	/**
-	 * Method to get model state variables
-	 *
-	 * @param   string  $property  Optional parameter name
-	 * @param   mixed   $default   Optional default value
-	 *
-	 * @return  mixed  The property where specified, the state object where omitted
-	 *
-	 * @since   3.0
-	 */
-	public function getState($property = null, $default = null)
-	{
-		if (!$this->__state_set)
-		{
-			// Protected method to auto-populate the model state.
-			$this->populateState();
-
-			// Set the model state set flag to true.
-			$this->__state_set = true;
-		}
-
-		return $property === null ? $this->state : $this->state->get($property, $default);
+		return $this->getMVCFactory()->createTable($name, $prefix, $config);
 	}
 
 	/**
@@ -470,16 +244,22 @@ abstract class BaseDatabaseModel extends \JObject
 	 * @param   string  $prefix   The class prefix. Optional.
 	 * @param   array   $options  Configuration array for model. Optional.
 	 *
-	 * @return  \JTable  A \JTable object
+	 * @return  Table  A Table object
 	 *
 	 * @since   3.0
 	 * @throws  \Exception
 	 */
-	public function getTable($name = '', $prefix = 'Table', $options = array())
+	public function getTable($name = '', $prefix = '', $options = array())
 	{
 		if (empty($name))
 		{
 			$name = $this->getName();
+		}
+
+		// We need this ugly code to deal with non-namespaced MVC code
+		if (empty($prefix) && $this->getMVCFactory() instanceof LegacyFactory)
+		{
+			$prefix = 'Table';
 		}
 
 		if ($table = $this->_createTable($name, $prefix, $options))
@@ -487,137 +267,165 @@ abstract class BaseDatabaseModel extends \JObject
 			return $table;
 		}
 
-		throw new \Exception(\JText::sprintf('JLIB_APPLICATION_ERROR_TABLE_NAME_NOT_SUPPORTED', $name), 0);
+		throw new \Exception(Text::sprintf('JLIB_APPLICATION_ERROR_TABLE_NAME_NOT_SUPPORTED', $name), 0);
 	}
 
 	/**
-	 * Method to load a row for editing from the version history table.
+	 * Method to check if the given record is checked out by the current user
 	 *
-	 * @param   integer  $versionId  Key to the version history table.
-	 * @param   \JTable  &$table     Content table object being loaded.
+	 * @param   \stdClass  $item  The record to check
 	 *
-	 * @return  boolean  False on failure or error, true otherwise.
-	 *
-	 * @since   3.2
+	 * @return  bool
 	 */
-	public function loadHistory($versionId, \JTable &$table)
+	public function isCheckedOut($item)
 	{
-		// Only attempt to check the row in if it exists, otherwise do an early exit.
-		if (!$versionId)
+		$table = $this->getTable();
+		$checkedOutField = $table->getColumnAlias('checked_out');
+
+		if (property_exists($item, $checkedOutField) && $item->{$checkedOutField} != $this->getCurrentUser()->id)
 		{
-			return false;
+			return true;
 		}
 
-		// Get an instance of the row to checkout.
-		$historyTable = \JTable::getInstance('Contenthistory');
-
-		if (!$historyTable->load($versionId))
-		{
-			$this->setError($historyTable->getError());
-
-			return false;
-		}
-
-		$rowArray = ArrayHelper::fromObject(json_decode($historyTable->version_data));
-		$typeId   = \JTable::getInstance('Contenttype')->getTypeId($this->typeAlias);
-
-		if ($historyTable->ucm_type_id != $typeId)
-		{
-			$this->setError(\JText::_('JLIB_APPLICATION_ERROR_HISTORY_ID_MISMATCH'));
-
-			$key = $table->getKeyName();
-
-			if (isset($rowArray[$key]))
-			{
-				$table->checkIn($rowArray[$key]);
-			}
-
-			return false;
-		}
-
-		$this->setState('save_date', $historyTable->save_date);
-		$this->setState('version_note', $historyTable->version_note);
-
-		return $table->bind($rowArray);
-	}
-
-	/**
-	 * Method to auto-populate the model state.
-	 *
-	 * This method should only be called once per instantiation and is designed
-	 * to be called on the first call to the getState() method unless the model
-	 * configuration flag to ignore the request is set.
-	 *
-	 * @return  void
-	 *
-	 * @note    Calling getState in this method will result in recursion.
-	 * @since   3.0
-	 */
-	protected function populateState()
-	{
-	}
-
-	/**
-	 * Method to set the database driver object
-	 *
-	 * @param   \JDatabaseDriver  $db  A \JDatabaseDriver based object
-	 *
-	 * @return  void
-	 *
-	 * @since   3.0
-	 */
-	public function setDbo($db)
-	{
-		$this->_db = $db;
-	}
-
-	/**
-	 * Method to set model state variables
-	 *
-	 * @param   string  $property  The name of the property.
-	 * @param   mixed   $value     The value of the property to set or null.
-	 *
-	 * @return  mixed  The previous value of the property or null if not set.
-	 *
-	 * @since   3.0
-	 */
-	public function setState($property, $value = null)
-	{
-		return $this->state->set($property, $value);
+		return false;
 	}
 
 	/**
 	 * Clean the cache
 	 *
-	 * @param   string   $group     The cache group
-	 * @param   integer  $clientId  The ID of the client
+	 * @param   string  $group  The cache group
 	 *
 	 * @return  void
 	 *
 	 * @since   3.0
 	 */
-	protected function cleanCache($group = null, $clientId = 0)
+	protected function cleanCache($group = null)
 	{
-		$conf = \JFactory::getConfig();
+		$app = Factory::getApplication();
 
-		$options = array(
-			'defaultgroup' => $group ?: (isset($this->option) ? $this->option : \JFactory::getApplication()->input->get('option')),
-			'cachebase' => $clientId ? JPATH_ADMINISTRATOR . '/cache' : $conf->get('cache_path', JPATH_SITE . '/cache'),
-			'result' => true,
-		);
+		$options = [
+			'defaultgroup' => $group ?: ($this->option ?? $app->input->get('option')),
+			'cachebase'    => $app->get('cache_path', JPATH_CACHE),
+			'result'       => true,
+		];
 
 		try
 		{
-			/** @var \JCacheControllerCallback $cache */
-			$cache = \JCache::getInstance('callback', $options);
+			/** @var CallbackController $cache */
+			$cache = Factory::getContainer()->get(CacheControllerFactoryInterface::class)->createCacheController('callback', $options);
 			$cache->clean();
 		}
-		catch (\JCacheException $exception)
+		catch (CacheExceptionInterface $exception)
 		{
 			$options['result'] = false;
 		}
 
 		// Trigger the onContentCleanCache event.
-		\JEventDispatcher::getInstance()->trigger($this->event_clean_cache, $options);
+		$this->dispatchEvent(new Event($this->event_clean_cache, $options));
+	}
+
+	/**
+	 * Boots the component with the given name.
+	 *
+	 * @param   string  $component  The component name, eg. com_content.
+	 *
+	 * @return  ComponentInterface  The service container
+	 *
+	 * @since   4.0.0
+	 */
+	protected function bootComponent($component): ComponentInterface
+	{
+		return Factory::getApplication()->bootComponent($component);
+	}
+
+	/**
+	 * Dispatches the given event on the internal dispatcher, does a fallback to the global one.
+	 *
+	 * @param   EventInterface  $event  The event
+	 *
+	 * @return  void
+	 *
+	 * @since   4.1.0
+	 */
+	protected function dispatchEvent(EventInterface $event)
+	{
+		try
+		{
+			$this->getDispatcher()->dispatch($event->getName(), $event);
+		}
+		catch (\UnexpectedValueException $e)
+		{
+			Factory::getContainer()->get(DispatcherInterface::class)->dispatch($event->getName(), $event);
+		}
+	}
+
+	/**
+	 * Get the database driver.
+	 *
+	 * @return  DatabaseInterface  The database driver.
+	 *
+	 * @since   4.2.0
+	 * @throws  \UnexpectedValueException
+	 *
+	 * @deprecated  5.0 Use getDatabase() instead
+	 */
+	public function getDbo()
+	{
+		try
+		{
+			return $this->getDatabase();
+		}
+		catch (DatabaseNotFoundException $e)
+		{
+			throw new \UnexpectedValueException('Database driver not set in ' . __CLASS__);
+		}
+	}
+
+	/**
+	 * Set the database driver.
+	 *
+	 * @param   DatabaseInterface  $db  The database driver.
+	 *
+	 * @return  void
+	 *
+	 * @since   4.2.0
+	 *
+	 * @deprecated  5.0 Use setDatabase() instead
+	 */
+	public function setDbo(DatabaseInterface $db = null)
+	{
+		if ($db === null)
+		{
+			return;
+		}
+
+		$this->setDatabase($db);
+	}
+
+	/**
+	 * Proxy for _db variable.
+	 *
+	 * @param   string  $name  The name of the element
+	 *
+	 * @return  mixed  The value of the element if set, null otherwise
+	 *
+	 * @since   4.2.0
+	 *
+	 * @deprecated  5.0 Use getDatabase() instead of directly accessing _db
+	 */
+	public function __get($name)
+	{
+		if ($name === '_db')
+		{
+			return $this->getDatabase();
+		}
+
+		// Default the variable
+		if (!isset($this->$name))
+		{
+			$this->$name = null;
+		}
+
+		return $this->$name;
 	}
 }

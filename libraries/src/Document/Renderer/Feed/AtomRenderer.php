@@ -8,10 +8,14 @@
 
 namespace Joomla\CMS\Document\Renderer\Feed;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
 use Joomla\CMS\Document\DocumentRenderer;
+use Joomla\CMS\Factory;
+use Joomla\CMS\Language\Text;
+use Joomla\CMS\Router\Route;
 use Joomla\CMS\Uri\Uri;
+use Joomla\CMS\Version;
 
 /**
  * AtomRenderer is a feed that implements the atom specification
@@ -49,32 +53,32 @@ class AtomRenderer extends DocumentRenderer
 	 */
 	public function render($name = '', $params = null, $content = null)
 	{
-		$app = \JFactory::getApplication();
+		$app = Factory::getApplication();
 
 		// Gets and sets timezone offset from site configuration
 		$tz  = new \DateTimeZone($app->get('offset'));
-		$now = \JFactory::getDate();
-		$now->setTimeZone($tz);
+		$now = Factory::getDate();
+		$now->setTimezone($tz);
 
 		$data = $this->_doc;
 
 		$url = Uri::getInstance()->toString(array('scheme', 'user', 'pass', 'host', 'port'));
-		$syndicationURL = \JRoute::_('&format=feed&type=atom');
+		$syndicationURL = Route::_('&format=feed&type=atom');
 
 		$title = $data->getTitle();
 
 		if ($app->get('sitename_pagetitles', 0) == 1)
 		{
-			$title = \JText::sprintf('JPAGETITLE', $app->get('sitename'), $data->getTitle());
+			$title = Text::sprintf('JPAGETITLE', $app->get('sitename'), $data->getTitle());
 		}
 		elseif ($app->get('sitename_pagetitles', 0) == 2)
 		{
-			$title = \JText::sprintf('JPAGETITLE', $data->getTitle(), $app->get('sitename'));
+			$title = Text::sprintf('JPAGETITLE', $data->getTitle(), $app->get('sitename'));
 		}
 
 		$feed_title = htmlspecialchars($title, ENT_COMPAT, 'UTF-8');
 
-		$feed = "<feed xmlns=\"http://www.w3.org/2005/Atom\" ";
+		$feed = "<feed xmlns=\"http://www.w3.org/2005/Atom\"";
 
 		if ($data->getLanguage() != '')
 		{
@@ -87,7 +91,7 @@ class AtomRenderer extends DocumentRenderer
 
 		if (!empty($data->category))
 		{
-			if (is_array($data->category))
+			if (\is_array($data->category))
 			{
 				foreach ($data->category as $cat)
 				{
@@ -121,14 +125,14 @@ class AtomRenderer extends DocumentRenderer
 
 		if ($app->get('MetaVersion', 0))
 		{
-			$minorVersion       = \JVersion::MAJOR_VERSION . '.' . \JVersion::MINOR_VERSION;
+			$minorVersion       = Version::MAJOR_VERSION . '.' . Version::MINOR_VERSION;
 			$versionHtmlEscaped = ' version="' . htmlspecialchars($minorVersion, ENT_COMPAT, 'UTF-8') . '"';
 		}
 
 		$feed .= "	<generator uri=\"https://www.joomla.org\"" . $versionHtmlEscaped . ">" . $data->getGenerator() . "</generator>\n";
 		$feed .= "	<link rel=\"self\" type=\"application/atom+xml\" href=\"" . str_replace(' ', '%20', $url . $syndicationURL) . "\"/>\n";
 
-		for ($i = 0, $count = count($data->items); $i < $count; $i++)
+		for ($i = 0, $count = \count($data->items); $i < $count; $i++)
 		{
 			$itemlink = $data->items[$i]->link;
 
@@ -146,8 +150,8 @@ class AtomRenderer extends DocumentRenderer
 				$data->items[$i]->date = $now->toUnix();
 			}
 
-			$itemDate = \JFactory::getDate($data->items[$i]->date);
-			$itemDate->setTimeZone($tz);
+			$itemDate = Factory::getDate($data->items[$i]->date);
+			$itemDate->setTimezone($tz);
 			$feed .= "		<published>" . htmlspecialchars($itemDate->toISO8601(true), ENT_COMPAT, 'UTF-8') . "</published>\n";
 			$feed .= "		<updated>" . htmlspecialchars($itemDate->toISO8601(true), ENT_COMPAT, 'UTF-8') . "</updated>\n";
 
@@ -183,7 +187,7 @@ class AtomRenderer extends DocumentRenderer
 
 			if (!empty($data->items[$i]->category))
 			{
-				if (is_array($data->items[$i]->category))
+				if (\is_array($data->items[$i]->category))
 				{
 					foreach ($data->items[$i]->category as $cat)
 					{
@@ -199,7 +203,7 @@ class AtomRenderer extends DocumentRenderer
 			if ($data->items[$i]->enclosure != null)
 			{
 				$feed .= "		<link rel=\"enclosure\" href=\"" . $data->items[$i]->enclosure->url . "\" type=\""
-					. $data->items[$i]->enclosure->type . "\"  length=\"" . $data->items[$i]->enclosure->length . "\" />\n";
+					. $data->items[$i]->enclosure->type . "\"  length=\"" . $data->items[$i]->enclosure->length . "\"/>\n";
 			}
 
 			$feed .= "	</entry>\n";

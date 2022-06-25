@@ -9,8 +9,11 @@
 
 defined('_JEXEC') or die;
 
-use Joomla\Filesystem\File;
-use Joomla\Filesystem\Folder;
+use Joomla\CMS\Cache\Cache;
+use Joomla\CMS\Factory;
+use Joomla\CMS\Filesystem\File;
+use Joomla\CMS\Filesystem\Folder;
+use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\Filesystem\Path;
 
 /**
@@ -20,28 +23,27 @@ use Joomla\Filesystem\Path;
  *
  * @since  3.9.0
  */
-class PlgSystemLogrotation extends JPlugin
+class PlgSystemLogrotation extends CMSPlugin
 {
 	/**
 	 * Load the language file on instantiation.
 	 *
 	 * @var    boolean
+	 *
 	 * @since  3.9.0
 	 */
 	protected $autoloadLanguage = true;
 
 	/**
-	 * Application object.
+	 * @var    \Joomla\CMS\Application\CMSApplication
 	 *
-	 * @var    JApplicationCms
 	 * @since  3.9.0
 	 */
 	protected $app;
 
 	/**
-	 * Database object.
+	 * @var    \Joomla\Database\DatabaseDriver
 	 *
-	 * @var    JDatabaseDriver
 	 * @since  3.9.0
 	 */
 	protected $db;
@@ -75,13 +77,15 @@ class PlgSystemLogrotation extends JPlugin
 		// Update last run status
 		$this->params->set('lastrun', $now);
 
-		$db    = $this->db;
-		$query = $db->getQuery(true)
-			->update($db->qn('#__extensions'))
-			->set($db->qn('params') . ' = ' . $db->q($this->params->toString('JSON')))
-			->where($db->qn('type') . ' = ' . $db->q('plugin'))
-			->where($db->qn('folder') . ' = ' . $db->q('system'))
-			->where($db->qn('element') . ' = ' . $db->q('logrotation'));
+		$paramsJson = $this->params->toString('JSON');
+		$db         = $this->db;
+		$query      = $db->getQuery(true)
+			->update($db->quoteName('#__extensions'))
+			->set($db->quoteName('params') . ' = :params')
+			->where($db->quoteName('type') . ' = ' . $db->quote('plugin'))
+			->where($db->quoteName('folder') . ' = ' . $db->quote('system'))
+			->where($db->quoteName('element') . ' = ' . $db->quote('logrotation'))
+			->bind(':params', $paramsJson);
 
 		try
 		{
@@ -247,8 +251,6 @@ class PlgSystemLogrotation extends JPlugin
 	 */
 	private function clearCacheGroups(array $clearGroups, array $cacheClients = array(0, 1))
 	{
-		$conf = JFactory::getConfig();
-
 		foreach ($clearGroups as $group)
 		{
 			foreach ($cacheClients as $client_id)
@@ -258,10 +260,10 @@ class PlgSystemLogrotation extends JPlugin
 					$options = array(
 						'defaultgroup' => $group,
 						'cachebase'    => $client_id ? JPATH_ADMINISTRATOR . '/cache' :
-							$conf->get('cache_path', JPATH_SITE . '/cache')
+							Factory::getApplication()->get('cache_path', JPATH_SITE . '/cache'),
 					);
 
-					$cache = JCache::getInstance('callback', $options);
+					$cache = Cache::getInstance('callback', $options);
 					$cache->clean();
 				}
 				catch (Exception $e)

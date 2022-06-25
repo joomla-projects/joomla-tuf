@@ -8,16 +8,14 @@
 
 namespace Joomla\CMS\Filesystem;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
-use Joomla\CMS\Factory;
-use Joomla\CMS\Log\Log;
-use Joomla\CMS\Language\Text;
-use Joomla\CMS\Filesystem\Path;
-use Joomla\CMS\Filesystem\Wrapper\PathWrapper;
-use Joomla\CMS\Filesystem\Wrapper\FolderWrapper;
 use Joomla\CMS\Client\ClientHelper;
 use Joomla\CMS\Client\FtpClient;
+use Joomla\CMS\Factory;
+use Joomla\CMS\Filter\InputFilter;
+use Joomla\CMS\Language\Text;
+use Joomla\CMS\Log\Log;
 
 /**
  * A File handling class
@@ -26,6 +24,12 @@ use Joomla\CMS\Client\FtpClient;
  */
 class File
 {
+	/**
+	 * @var    boolean  true if OPCache enabled, and we have permission to invalidate files
+	 * @since  4.0.1
+	 */
+	protected static $canFlushFileCache;
+
 	/**
 	 * Gets the extension of a file name
 	 *
@@ -84,6 +88,13 @@ class File
 		// Remove any trailing dots, as those aren't ever valid file names.
 		$file = rtrim($file, '.');
 
+		// Try transliterating the file name using the native php function
+		if (function_exists('transliterator_transliterate') && function_exists('iconv'))
+		{
+			// Using iconv to ignore characters that can't be transliterated
+			$file = iconv("UTF-8", "ASCII//TRANSLIT//IGNORE", transliterator_transliterate('Any-Latin; Latin-ASCII', $file));
+		}
+
 		$regex = array('#(\.){2,}#', '#[^A-Za-z0-9\.\_\- ]#', '#^\.#');
 
 		return trim(preg_replace($regex, '', $file));
@@ -103,19 +114,17 @@ class File
 	 */
 	public static function copy($src, $dest, $path = null, $useStreams = false)
 	{
-		$pathObject = new PathWrapper;
-
 		// Prepend a base path if it exists
 		if ($path)
 		{
-			$src = $pathObject->clean($path . '/' . $src);
-			$dest = $pathObject->clean($path . '/' . $dest);
+			$src = Path::clean($path . '/' . $src);
+			$dest = Path::clean($path . '/' . $dest);
 		}
 
 		// Check src path
 		if (!is_readable($src))
 		{
-			Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_JFILE_FIND_COPY', $src), Log::WARNING, 'jerror');
+			Log::add(Text::sprintf('LIB_FILESYSTEM_ERROR_JFILE_FIND_COPY', __METHOD__, $src), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -126,10 +135,12 @@ class File
 
 			if (!$stream->copy($src, $dest))
 			{
-				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_JFILE_STREAMS', $src, $dest, $stream->getError()), Log::WARNING, 'jerror');
+				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_FILE_STREAMS', __METHOD__, $src, $dest, $stream->getError()), Log::WARNING, 'jerror');
 
 				return false;
 			}
+
+			self::invalidateFileCache($dest);
 
 			return true;
 		}
@@ -143,14 +154,13 @@ class File
 				$ftp = FtpClient::getInstance($FTPOptions['host'], $FTPOptions['port'], array(), $FTPOptions['user'], $FTPOptions['pass']);
 
 				// If the parent folder doesn't exist we must create it
-				if (!file_exists(dirname($dest)))
+				if (!file_exists(\dirname($dest)))
 				{
-					$folderObject = new FolderWrapper;
-					$folderObject->create(dirname($dest));
+					Folder::create(\dirname($dest));
 				}
 
 				// Translate the destination path for the FTP account
-				$dest = $pathObject->clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $dest), '/');
+				$dest = Path::clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $dest), '/');
 
 				if (!$ftp->store($src, $dest))
 				{
@@ -172,8 +182,68 @@ class File
 				$ret = true;
 			}
 
+			self::invalidateFileCache($dest);
+
 			return $ret;
 		}
+	}
+
+	/**
+	 * Invalidate opcache for a newly written/deleted file immediately, if opcache* functions exist and if this was a PHP file.
+	 *
+	 * @param   string  $filepath   The path to the file just written to, to flush from opcache
+	 * @param   boolean $force      If set to true, the script will be invalidated regardless of whether invalidation is necessary
+	 *
+	 * @return boolean TRUE if the opcode cache for script was invalidated/nothing to invalidate,
+	 *                 or FALSE if the opcode cache is disabled or other conditions returning
+	 *                 FALSE from opcache_invalidate (like file not found).
+	 *
+	 * @since 4.0.1
+	 */
+	public static function invalidateFileCache($filepath, $force = true)
+	{
+		if (self::canFlushFileCache() && '.php' === strtolower(substr($filepath, -4)))
+		{
+			return opcache_invalidate($filepath, $force);
+		}
+
+		return false;
+	}
+
+	/**
+	 * First we check if opcache is enabled
+	 * Then we check if the opcache_invalidate function is available
+	 * Lastly we check if the host has restricted which scripts can use opcache_invalidate using opcache.restrict_api.
+	 *
+	 * `$_SERVER['SCRIPT_FILENAME']` approximates the origin file's path, but `realpath()`
+	 * is necessary because `SCRIPT_FILENAME` can be a relative path when run from CLI.
+	 * If the host has this set, check whether the path in `opcache.restrict_api` matches
+	 * the beginning of the path of the origin file.
+	 *
+	 * @return boolean TRUE if we can proceed to use opcache_invalidate to flush a file from the OPCache
+	 *
+	 * @since 4.0.1
+	 */
+	public static function canFlushFileCache()
+	{
+		if (isset(static::$canFlushFileCache))
+		{
+			return static::$canFlushFileCache;
+		}
+
+		if (ini_get('opcache.enable')
+			&& function_exists('opcache_invalidate')
+			&& (!ini_get('opcache.restrict_api') || stripos(realpath($_SERVER['SCRIPT_FILENAME']), ini_get('opcache.restrict_api')) === 0)
+		)
+		{
+			static::$canFlushFileCache = true;
+		}
+		else
+		{
+			static::$canFlushFileCache = false;
+		}
+
+		return static::$canFlushFileCache;
 	}
 
 	/**
@@ -188,9 +258,8 @@ class File
 	public static function delete($file)
 	{
 		$FTPOptions = ClientHelper::getCredentials('ftp');
-		$pathObject = new PathWrapper;
 
-		if (is_array($file))
+		if (\is_array($file))
 		{
 			$files = $file;
 		}
@@ -208,26 +277,37 @@ class File
 
 		foreach ($files as $file)
 		{
-			$file = $pathObject->clean($file);
+			$file = Path::clean($file);
 
 			if (!is_file($file))
 			{
 				continue;
 			}
 
-			// Try making the file writable first. If it's read-only, it can't be deleted
-			// on Windows, even if the parent folder is writable
+			/**
+			 * Try making the file writable first. If it's read-only, it can't be deleted
+			 * on Windows, even if the parent folder is writable
+			 */
 			@chmod($file, 0777);
 
-			// In case of restricted permissions we zap it one way or the other
-			// as long as the owner is either the webserver or the ftp
+			/**
+			 * Invalidate the OPCache for the file before actually deleting it
+			 * @see https://github.com/joomla/joomla-cms/pull/32915#issuecomment-812865635
+			 * @see https://www.php.net/manual/en/function.opcache-invalidate.php#116372
+			 */
+			self::invalidateFileCache($file);
+
+			/**
+			 * In case of restricted permissions we delete it one way or the other
+			 * as long as the owner is either the webserver or the ftp
+			 */
 			if (@unlink($file))
 			{
 				// Do nothing
 			}
 			elseif ($FTPOptions['enabled'] == 1)
 			{
-				$file = $pathObject->clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $file), '/');
+				$file = Path::clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $file), '/');
 
 				if (!$ftp->delete($file))
 				{
@@ -262,12 +342,10 @@ class File
 	 */
 	public static function move($src, $dest, $path = '', $useStreams = false)
 	{
-		$pathObject = new PathWrapper;
-
 		if ($path)
 		{
-			$src = $pathObject->clean($path . '/' . $src);
-			$dest = $pathObject->clean($path . '/' . $dest);
+			$src = Path::clean($path . '/' . $src);
+			$dest = Path::clean($path . '/' . $dest);
 		}
 
 		// Check src path
@@ -284,10 +362,12 @@ class File
 
 			if (!$stream->move($src, $dest))
 			{
-				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_JFILE_MOVE_STREAMS', $stream->getError()), Log::WARNING, 'jerror');
+				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_GENERIC', __METHOD__, $stream->getError()), Log::WARNING, 'jerror');
 
 				return false;
 			}
+
+			self::invalidateFileCache($dest);
 
 			return true;
 		}
@@ -295,14 +375,17 @@ class File
 		{
 			$FTPOptions = ClientHelper::getCredentials('ftp');
 
+			// Invalidate the compiled OPCache of the old file so it's no longer used.
+			self::invalidateFileCache($src);
+
 			if ($FTPOptions['enabled'] == 1)
 			{
 				// Connect the FTP client
 				$ftp = FtpClient::getInstance($FTPOptions['host'], $FTPOptions['port'], array(), $FTPOptions['user'], $FTPOptions['pass']);
 
 				// Translate path for the FTP account
-				$src = $pathObject->clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $src), '/');
-				$dest = $pathObject->clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $dest), '/');
+				$src = Path::clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $src), '/');
+				$dest = Path::clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $dest), '/');
 
 				// Use FTP rename to simulate move
 				if (!$ftp->rename($src, $dest))
@@ -322,79 +405,10 @@ class File
 				}
 			}
 
+			self::invalidateFileCache($dest);
+
 			return true;
 		}
-	}
-
-	/**
-	 * Read the contents of a file
-	 *
-	 * @param   string   $filename   The full file path
-	 * @param   boolean  $incpath    Use include path
-	 * @param   integer  $amount     Amount of file to read
-	 * @param   integer  $chunksize  Size of chunks to read
-	 * @param   integer  $offset     Offset of the file
-	 *
-	 * @return  mixed  Returns file contents or boolean False if failed
-	 *
-	 * @since   1.7.0
-	 * @deprecated  4.0 - Use the native file_get_contents() instead.
-	 */
-	public static function read($filename, $incpath = false, $amount = 0, $chunksize = 8192, $offset = 0)
-	{
-		Log::add(__METHOD__ . ' is deprecated. Use native file_get_contents() syntax.', Log::WARNING, 'deprecated');
-
-		$data = null;
-
-		if ($amount && $chunksize > $amount)
-		{
-			$chunksize = $amount;
-		}
-
-		if (false === $fh = fopen($filename, 'rb', $incpath))
-		{
-			Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_READ_UNABLE_TO_OPEN_FILE', $filename), Log::WARNING, 'jerror');
-
-			return false;
-		}
-
-		clearstatcache();
-
-		if ($offset)
-		{
-			fseek($fh, $offset);
-		}
-
-		if ($fsize = @ filesize($filename))
-		{
-			if ($amount && $fsize > $amount)
-			{
-				$data = fread($fh, $amount);
-			}
-			else
-			{
-				$data = fread($fh, $fsize);
-			}
-		}
-		else
-		{
-			$data = '';
-
-			/*
-			 * While it's:
-			 * 1: Not the end of the file AND
-			 * 2a: No Max Amount set OR
-			 * 2b: The length of the data is less than the max amount we want
-			 */
-			while (!feof($fh) && (!$amount || strlen($data) < $amount))
-			{
-				$data .= fread($fh, $chunksize);
-			}
-		}
-
-		fclose($fh);
-
-		return $data;
 	}
 
 	/**
@@ -413,11 +427,9 @@ class File
 		@set_time_limit(ini_get('max_execution_time'));
 
 		// If the destination directory doesn't exist we need to create it
-		if (!file_exists(dirname($file)))
+		if (!file_exists(\dirname($file)))
 		{
-			$folderObject = new FolderWrapper;
-
-			if ($folderObject->create(dirname($file)) == false)
+			if (Folder::create(\dirname($file)) == false)
 			{
 				return false;
 			}
@@ -432,17 +444,18 @@ class File
 
 			if (!$stream->writeFile($file, $buffer))
 			{
-				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_WRITE_STREAMS', $file, $stream->getError()), Log::WARNING, 'jerror');
+				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_WRITE_STREAMS', __METHOD__, $file, $stream->getError()), Log::WARNING, 'jerror');
 
 				return false;
 			}
+
+			self::invalidateFileCache($file);
 
 			return true;
 		}
 		else
 		{
 			$FTPOptions = ClientHelper::getCredentials('ftp');
-			$pathObject = new PathWrapper;
 
 			if ($FTPOptions['enabled'] == 1)
 			{
@@ -450,14 +463,16 @@ class File
 				$ftp = FtpClient::getInstance($FTPOptions['host'], $FTPOptions['port'], array(), $FTPOptions['user'], $FTPOptions['pass']);
 
 				// Translate path for the FTP account and use FTP write buffer to file
-				$file = $pathObject->clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $file), '/');
+				$file = Path::clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $file), '/');
 				$ret = $ftp->write($file, $buffer);
 			}
 			else
 			{
-				$file = $pathObject->clean($file);
-				$ret = is_int(file_put_contents($file, $buffer)) ? true : false;
+				$file = Path::clean($file);
+				$ret = \is_int(file_put_contents($file, $buffer));
 			}
+
+			self::invalidateFileCache($file);
 
 			return $ret;
 		}
@@ -493,10 +508,12 @@ class File
 
 			if ($stream->open($file, 'ab') && $stream->write($buffer) && $stream->close())
 			{
+				self::invalidateFileCache($file);
+
 				return true;
 			}
 
-			Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_WRITE_STREAMS', $file, $stream->getError()), Log::WARNING, 'jerror');
+			Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_WRITE_STREAMS', __METHOD__, $file, $stream->getError()), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -517,8 +534,10 @@ class File
 			else
 			{
 				$file = Path::clean($file);
-				$ret = is_int(file_put_contents($file, $buffer, FILE_APPEND));
+				$ret = \is_int(file_put_contents($file, $buffer, FILE_APPEND));
 			}
+
+			self::invalidateFileCache($file);
 
 			return $ret;
 		}
@@ -531,7 +550,7 @@ class File
 	 * @param   string   $dest             The path (including filename) to move the uploaded file to
 	 * @param   boolean  $useStreams       True to use streams
 	 * @param   boolean  $allowUnsafe      Allow the upload of unsafe files
-	 * @param   boolean  $safeFileOptions  Options to \JFilterInput::isSafeFile
+	 * @param   array    $safeFileOptions  Options to InputFilter::isSafeFile
 	 *
 	 * @return  boolean  True on success
 	 *
@@ -549,7 +568,7 @@ class File
 				'size'     => '',
 			);
 
-			$isSafe = \JFilterInput::isSafeFile($descriptor, $safeFileOptions);
+			$isSafe = InputFilter::isSafeFile($descriptor, $safeFileOptions);
 
 			if (!$isSafe)
 			{
@@ -560,16 +579,14 @@ class File
 		}
 
 		// Ensure that the path is valid and clean
-		$pathObject = new PathWrapper;
-		$dest = $pathObject->clean($dest);
+		$dest = Path::clean($dest);
 
 		// Create the destination directory if it does not exist
-		$baseDir = dirname($dest);
+		$baseDir = \dirname($dest);
 
 		if (!file_exists($baseDir))
 		{
-			$folderObject = new FolderWrapper;
-			$folderObject->create($baseDir);
+			Folder::create($baseDir);
 		}
 
 		if ($useStreams)
@@ -578,7 +595,7 @@ class File
 
 			if (!$stream->upload($src, $dest))
 			{
-				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_UPLOAD', $stream->getError()), Log::WARNING, 'jerror');
+				Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_GENERIC', __METHOD__, $stream->getError()), Log::WARNING, 'jerror');
 
 				return false;
 			}
@@ -596,11 +613,12 @@ class File
 				$ftp = FtpClient::getInstance($FTPOptions['host'], $FTPOptions['port'], array(), $FTPOptions['user'], $FTPOptions['pass']);
 
 				// Translate path for the FTP account
-				$dest = $pathObject->clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $dest), '/');
+				$dest = Path::clean(str_replace(JPATH_ROOT, $FTPOptions['root'], $dest), '/');
 
 				// Copy the file to the destination directory
 				if (is_uploaded_file($src) && $ftp->store($src, $dest))
 				{
+					self::invalidateFileCache($src);
 					unlink($src);
 					$ret = true;
 				}
@@ -611,10 +629,12 @@ class File
 			}
 			else
 			{
-				if (is_writeable($baseDir) && move_uploaded_file($src, $dest))
+				self::invalidateFileCache($src);
+
+				if (is_writable($baseDir) && move_uploaded_file($src, $dest))
 				{
 					// Short circuit to prevent file permission errors
-					if ($pathObject->setPermissions($dest))
+					if (Path::setPermissions($dest))
 					{
 						$ret = true;
 					}
@@ -628,6 +648,8 @@ class File
 					Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_WARNFS_ERR04', $src, $dest), Log::WARNING, 'jerror');
 				}
 			}
+
+			self::invalidateFileCache($dest);
 
 			return $ret;
 		}
@@ -644,36 +666,6 @@ class File
 	 */
 	public static function exists($file)
 	{
-		$pathObject = new PathWrapper;
-
-		return is_file($pathObject->clean($file));
-	}
-
-	/**
-	 * Returns the name, without any path.
-	 *
-	 * @param   string  $file  File path
-	 *
-	 * @return  string  filename
-	 *
-	 * @since   1.7.0
-	 * @deprecated  4.0 - Use basename() instead.
-	 */
-	public static function getName($file)
-	{
-		Log::add(__METHOD__ . ' is deprecated. Use native basename() syntax.', Log::WARNING, 'deprecated');
-
-		// Convert back slashes to forward slashes
-		$file = str_replace('\\', '/', $file);
-		$slash = strrpos($file, '/');
-
-		if ($slash !== false)
-		{
-			return substr($file, $slash + 1);
-		}
-		else
-		{
-			return $file;
-		}
+		return is_file(Path::clean($file));
 	}
 }

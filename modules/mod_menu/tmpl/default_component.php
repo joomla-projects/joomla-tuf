@@ -9,6 +9,9 @@
 
 defined('_JEXEC') or die;
 
+use Joomla\CMS\Filter\OutputFilter;
+use Joomla\CMS\HTML\HTMLHelper;
+
 $attributes = array();
 
 if ($item->anchor_title)
@@ -26,21 +29,45 @@ if ($item->anchor_rel)
 	$attributes['rel'] = $item->anchor_rel;
 }
 
+if ($item->id == $active_id)
+{
+	$attributes['aria-current'] = 'location';
+
+	if ($item->current)
+	{
+		$attributes['aria-current'] = 'page';
+	}
+}
+
 $linktype = $item->title;
 
-if ($item->menu_image)
+if ($item->menu_icon)
 {
-	if ($item->menu_image_css)
+	// The link is an icon
+	if ($itemParams->get('menu_text', 1))
 	{
-		$image_attributes['class'] = $item->menu_image_css;
-		$linktype = JHtml::_('image', $item->menu_image, $item->title, $image_attributes);
+		// If the link text is to be displayed, the icon is added with aria-hidden
+		$linktype = '<span class="p-2 ' . $item->menu_icon . '" aria-hidden="true"></span>' . $item->title;
 	}
 	else
 	{
-		$linktype = JHtml::_('image', $item->menu_image, $item->title);
+		// If the icon itself is the link, it needs a visually hidden text
+		$linktype = '<span class="p-2 ' . $item->menu_icon . '" aria-hidden="true"></span><span class="visually-hidden">' . $item->title . '</span>';
+	}
+}
+elseif ($item->menu_image)
+{
+	// The link is an image, maybe with its own class
+	$image_attributes = [];
+
+	if ($item->menu_image_css)
+	{
+		$image_attributes['class'] = $item->menu_image_css;
 	}
 
-	if ($item->params->get('menu_text', 1))
+	$linktype = HTMLHelper::_('image', $item->menu_image, $item->title, $image_attributes);
+
+	if ($itemParams->get('menu_text', 1))
 	{
 		$linktype .= '<span class="image-title">' . $item->title . '</span>';
 	}
@@ -57,4 +84,4 @@ elseif ($item->browserNav == 2)
 	$attributes['onclick'] = "window.open(this.href, 'targetWindow', '" . $options . "'); return false;";
 }
 
-echo JHtml::_('link', JFilterOutput::ampReplace(htmlspecialchars($item->flink, ENT_COMPAT, 'UTF-8', false)), $linktype, $attributes);
+echo HTMLHelper::_('link', OutputFilter::ampReplace(htmlspecialchars($item->flink, ENT_COMPAT, 'UTF-8', false)), $linktype, $attributes);

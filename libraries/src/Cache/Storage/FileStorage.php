@@ -8,9 +8,11 @@
 
 namespace Joomla\CMS\Cache\Storage;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
 use Joomla\CMS\Cache\CacheStorage;
+use Joomla\CMS\Filesystem\File;
+use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
 
 /**
@@ -58,7 +60,7 @@ class FileStorage extends CacheStorage
 		{
 			foreach ($locked_files as $path => $handle)
 			{
-				if (is_resource($handle))
+				if (\is_resource($handle))
 				{
 					@flock($handle, LOCK_UN);
 					@fclose($handle);
@@ -67,6 +69,7 @@ class FileStorage extends CacheStorage
 				// Delete only the existing file if it is empty.
 				if (@filesize($path) === 0)
 				{
+					File::invalidateFileCache($path);
 					@unlink($path);
 				}
 
@@ -211,7 +214,7 @@ class FileStorage extends CacheStorage
 
 		if ($_fileopen)
 		{
-			$length = strlen($data);
+			$length = \strlen($data);
 			$result = @fwrite($_fileopen, $data, $length);
 
 			if ($close)
@@ -239,6 +242,7 @@ class FileStorage extends CacheStorage
 	{
 		$path = $this->_getFilePath($id, $group);
 
+		File::invalidateFileCache($path);
 		if (!@unlink($path))
 		{
 			return false;
@@ -275,7 +279,7 @@ class FileStorage extends CacheStorage
 			case 'notgroup' :
 				$folders = $this->_folders($this->_root);
 
-				for ($i = 0, $n = count($folders); $i < $n; $i++)
+				for ($i = 0, $n = \count($folders); $i < $n; $i++)
 				{
 					if ($folders[$i] != $folder)
 					{
@@ -318,6 +322,7 @@ class FileStorage extends CacheStorage
 
 			if (($time + $this->_lifetime) < $this->_now || empty($time))
 			{
+				File::invalidateFileCache($file);
 				$result |= @unlink($file);
 			}
 		}
@@ -436,6 +441,7 @@ class FileStorage extends CacheStorage
 
 			if (($time + $this->_lifetime) < $this->_now || empty($time))
 			{
+				File::invalidateFileCache($path);
 				@unlink($path);
 
 				return false;
@@ -500,7 +506,7 @@ class FileStorage extends CacheStorage
 		if (!$path || !is_dir($path) || empty($this->_root))
 		{
 			// Bad programmer! Bad, bad programmer!
-			Log::add(__METHOD__ . ' ' . \JText::_('JLIB_FILESYSTEM_ERROR_DELETE_BASE_DIRECTORY'), Log::WARNING, 'jerror');
+			Log::add(__METHOD__ . ' ' . Text::_('JLIB_FILESYSTEM_ERROR_DELETE_BASE_DIRECTORY'), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -512,7 +518,7 @@ class FileStorage extends CacheStorage
 
 		if ($pos === false || $pos > 0)
 		{
-			Log::add(__METHOD__ . ' ' . \JText::sprintf('JLIB_FILESYSTEM_ERROR_PATH_IS_NOT_A_FOLDER', $path), Log::WARNING, 'jerror');
+			Log::add(__METHOD__ . ' ' . Text::sprintf('JLIB_FILESYSTEM_ERROR_PATH_IS_NOT_A_FOLDER', __METHOD__, $path), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -520,23 +526,26 @@ class FileStorage extends CacheStorage
 		// Remove all the files in folder if they exist; disable all filtering
 		$files = $this->_filesInFolder($path, '.', false, true, array(), array());
 
-		if (!empty($files) && !is_array($files))
+		if (!empty($files) && !\is_array($files))
 		{
+			File::invalidateFileCache($files);
 			if (@unlink($files) !== true)
 			{
 				return false;
 			}
 		}
-		elseif (!empty($files) && is_array($files))
+		elseif (!empty($files) && \is_array($files))
 		{
 			foreach ($files as $file)
 			{
 				$file = $this->_cleanPath($file);
 
-				// In case of restricted permissions we zap it one way or the other as long as the owner is either the webserver or the ftp
+				// In case of restricted permissions we delete it one way or the other as long as the owner is either the webserver or the ftp
+				File::invalidateFileCache($file);
+
 				if (@unlink($file) !== true)
 				{
-					Log::add(__METHOD__ . ' ' . \JText::sprintf('JLIB_FILESYSTEM_DELETE_FAILED', basename($file)), Log::WARNING, 'jerror');
+					Log::add(__METHOD__ . ' ' . Text::sprintf('JLIB_FILESYSTEM_DELETE_FAILED', basename($file)), Log::WARNING, 'jerror');
 
 					return false;
 				}
@@ -568,7 +577,7 @@ class FileStorage extends CacheStorage
 			return true;
 		}
 
-		Log::add(__METHOD__ . ' ' . \JText::sprintf('JLIB_FILESYSTEM_ERROR_FOLDER_DELETE', $path), Log::WARNING, 'jerror');
+		Log::add(Text::sprintf('JLIB_FILESYSTEM_ERROR_FOLDER_DELETE', $path), Log::WARNING, 'jerror');
 
 		return false;
 	}
@@ -623,7 +632,7 @@ class FileStorage extends CacheStorage
 		// Is the path a folder?
 		if (!is_dir($path))
 		{
-			Log::add(__METHOD__ . ' ' . \JText::sprintf('JLIB_FILESYSTEM_ERROR_PATH_IS_NOT_A_FOLDER', $path), Log::WARNING, 'jerror');
+			Log::add(__METHOD__ . ' ' . Text::sprintf('JLIB_FILESYSTEM_ERROR_PATH_IS_NOT_A_FOLDER', __METHOD__, $path), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -634,7 +643,7 @@ class FileStorage extends CacheStorage
 			return $arr;
 		}
 
-		if (count($excludefilter))
+		if (\count($excludefilter))
 		{
 			$excludefilter = '/(' . implode('|', $excludefilter) . ')/';
 		}
@@ -645,7 +654,7 @@ class FileStorage extends CacheStorage
 
 		while (($file = readdir($handle)) !== false)
 		{
-			if (($file != '.') && ($file != '..') && (!in_array($file, $exclude)) && (!$excludefilter || !preg_match($excludefilter, $file)))
+			if (($file != '.') && ($file != '..') && (!\in_array($file, $exclude)) && (!$excludefilter || !preg_match($excludefilter, $file)))
 			{
 				$dir   = $path . '/' . $file;
 				$isDir = is_dir($dir);
@@ -654,7 +663,7 @@ class FileStorage extends CacheStorage
 				{
 					if ($recurse)
 					{
-						if (is_int($recurse))
+						if (\is_int($recurse))
 						{
 							$arr2 = $this->_filesInFolder($dir, $filter, $recurse - 1, $fullpath);
 						}
@@ -713,7 +722,7 @@ class FileStorage extends CacheStorage
 		// Is the path a folder?
 		if (!is_dir($path))
 		{
-			Log::add(__METHOD__ . ' ' . \JText::sprintf('JLIB_FILESYSTEM_ERROR_PATH_IS_NOT_A_FOLDER', $path), Log::WARNING, 'jerror');
+			Log::add(__METHOD__ . ' ' . Text::sprintf('JLIB_FILESYSTEM_ERROR_PATH_IS_NOT_A_FOLDER', __METHOD__, $path), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -724,7 +733,7 @@ class FileStorage extends CacheStorage
 			return $arr;
 		}
 
-		if (count($excludefilter))
+		if (\count($excludefilter))
 		{
 			$excludefilter_string = '/(' . implode('|', $excludefilter) . ')/';
 		}
@@ -736,7 +745,7 @@ class FileStorage extends CacheStorage
 		while (($file = readdir($handle)) !== false)
 		{
 			if (($file != '.') && ($file != '..')
-				&& (!in_array($file, $exclude))
+				&& (!\in_array($file, $exclude))
 				&& (empty($excludefilter_string) || !preg_match($excludefilter_string, $file)))
 			{
 				$dir   = $path . '/' . $file;
@@ -759,7 +768,7 @@ class FileStorage extends CacheStorage
 
 					if ($recurse)
 					{
-						if (is_int($recurse))
+						if (\is_int($recurse))
 						{
 							$arr2 = $this->_folders($dir, $filter, $recurse - 1, $fullpath, $exclude, $excludefilter);
 						}

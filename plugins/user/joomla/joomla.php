@@ -11,10 +11,16 @@ defined('_JEXEC') or die;
 
 use Joomla\CMS\Component\ComponentHelper;
 use Joomla\CMS\Factory;
+use Joomla\CMS\Language\LanguageFactoryInterface;
 use Joomla\CMS\Language\Text;
+use Joomla\CMS\Log\Log;
+use Joomla\CMS\Mail\MailTemplate;
+use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\User\User;
 use Joomla\CMS\User\UserHelper;
+use Joomla\Database\Exception\ExecutionFailureException;
+use Joomla\Database\ParameterType;
 use Joomla\Registry\Registry;
 
 /**
@@ -22,20 +28,18 @@ use Joomla\Registry\Registry;
  *
  * @since  1.5
  */
-class PlgUserJoomla extends JPlugin
+class PlgUserJoomla extends CMSPlugin
 {
 	/**
-	 * Application object
+	 * @var    \Joomla\CMS\Application\CMSApplication
 	 *
-	 * @var    JApplicationCms
 	 * @since  3.2
 	 */
 	protected $app;
 
 	/**
-	 * Database object
+	 * @var    \Joomla\Database\DatabaseDriver
 	 *
-	 * @var    JDatabaseDriver
 	 * @since  3.2
 	 */
 	protected $db;
@@ -43,12 +47,12 @@ class PlgUserJoomla extends JPlugin
 	/**
 	 * Set as required the passwords fields when mail to user is set to No
 	 *
-	 * @param   JForm  $form  The form to be altered.
-	 * @param   mixed  $data  The associated data for the form.
+	 * @param   \Joomla\CMS\Form\Form  $form  The form to be altered.
+	 * @param   mixed                  $data  The associated data for the form.
 	 *
 	 * @return  boolean
 	 *
-	 * @since   3.9.2
+	 * @since   4.0.0
 	 */
 	public function onContentPrepareForm($form, $data)
 	{
@@ -61,7 +65,7 @@ class PlgUserJoomla extends JPlugin
 			// After returning from error, $data is an array but populated
 			if (!$data)
 			{
-				$data = JFactory::getApplication()->input->get('jform', array(), 'array');
+				$data = Factory::getApplication()->input->get('jform', array(), 'array');
 			}
 
 			if (is_array($data))
@@ -89,44 +93,71 @@ class PlgUserJoomla extends JPlugin
 	 * @param   boolean  $success  True if user was successfully stored in the database
 	 * @param   string   $msg      Message
 	 *
-	 * @return  boolean
+	 * @return  void
 	 *
 	 * @since   1.6
 	 */
-	public function onUserAfterDelete($user, $success, $msg)
+	public function onUserAfterDelete($user, $success, $msg): void
 	{
 		if (!$success)
 		{
-			return false;
+			return;
 		}
 
-		$query = $this->db->getQuery(true)
-			->delete($this->db->quoteName('#__session'))
-			->where($this->db->quoteName('userid') . ' = ' . (int) $user['id']);
+		$userId = (int) $user['id'];
+
+		// Only execute this if the session metadata is tracked
+		if ($this->app->get('session_metadata', true))
+		{
+			UserHelper::destroyUserSessions($userId, true);
+		}
+
+		try
+		{
+			$this->db->setQuery(
+				$this->db->getQuery(true)
+					->delete($this->db->quoteName('#__messages'))
+					->where($this->db->quoteName('user_id_from') . ' = :userId')
+					->bind(':userId', $userId, ParameterType::INTEGER)
+			)->execute();
+		}
+		catch (ExecutionFailureException $e)
+		{
+			// Do nothing.
+		}
+
+		// Delete Multi-factor Authentication user profile records
+		$profileKey = 'mfa.%';
+		$query      = $this->db->getQuery(true)
+			->delete($this->db->quoteName('#__user_profiles'))
+			->where($this->db->quoteName('user_id') . ' = :userId')
+			->where($this->db->quoteName('profile_key') . ' LIKE :profileKey')
+			->bind(':userId', $userId, ParameterType::INTEGER)
+			->bind(':profileKey', $profileKey, ParameterType::STRING);
 
 		try
 		{
 			$this->db->setQuery($query)->execute();
 		}
-		catch (JDatabaseExceptionExecuting $e)
+		catch (Exception $e)
 		{
-			return false;
+			// Do nothing
 		}
 
+		// Delete Multi-factor Authentication records
 		$query = $this->db->getQuery(true)
-			->delete($this->db->quoteName('#__messages'))
-			->where($this->db->quoteName('user_id_from') . ' = ' . (int) $user['id']);
+			->delete($this->db->qn('#__user_mfa'))
+			->where($this->db->quoteName('user_id') . ' = :userId')
+			->bind(':userId', $userId, ParameterType::INTEGER);
 
 		try
 		{
 			$this->db->setQuery($query)->execute();
 		}
-		catch (JDatabaseExceptionExecuting $e)
+		catch (Exception $e)
 		{
-			return false;
+			// Do nothing
 		}
-
-		return true;
 	}
 
 	/**
@@ -143,7 +174,7 @@ class PlgUserJoomla extends JPlugin
 	 *
 	 * @since   1.6
 	 */
-	public function onUserAfterSave($user, $isnew, $success, $msg)
+	public function onUserAfterSave($user, $isnew, $success, $msg): void
 	{
 		$mail_to_user = $this->params->get('mail_to_user', 1);
 
@@ -152,9 +183,9 @@ class PlgUserJoomla extends JPlugin
 			return;
 		}
 
-		// TODO: Suck in the frontend registration emails here as well. Job for a rainy day.
+		// @todo: Suck in the frontend registration emails here as well. Job for a rainy day.
 		// The method check here ensures that if running as a CLI Application we don't get any errors
-		if (method_exists($this->app, 'isClient') && !$this->app->isClient('administrator'))
+		if (method_exists($this->app, 'isClient') && ($this->app->isClient('site') || $this->app->isClient('cli')))
 		{
 			return;
 		}
@@ -167,8 +198,8 @@ class PlgUserJoomla extends JPlugin
 			return;
 		}
 
-		$lang = Factory::getLanguage();
-		$defaultLocale = $lang->getTag();
+		$defaultLanguage = Factory::getLanguage();
+		$defaultLocale   = $defaultLanguage->getTag();
 
 		/**
 		 * Look for user language. Priority:
@@ -178,37 +209,50 @@ class PlgUserJoomla extends JPlugin
 		$userParams = new Registry($user['params']);
 		$userLocale = $userParams->get('language', $userParams->get('admin_language', $defaultLocale));
 
+		// Temporarily set application language to user's language.
 		if ($userLocale !== $defaultLocale)
 		{
-			$lang->setLanguage($userLocale);
+			Factory::$language = Factory::getContainer()
+				->get(LanguageFactoryInterface::class)
+				->createLanguage($userLocale, $this->app->get('debug_lang', false));
 		}
 
-		$lang->load('plg_user_joomla', JPATH_ADMINISTRATOR);
+		// Load plugin language files.
+		$this->loadLanguage();
 
-		// Compute the mail subject.
-		$emailSubject = Text::sprintf(
-			'PLG_USER_JOOMLA_NEW_USER_EMAIL_SUBJECT',
-			$user['name'],
-			$this->app->get('sitename')
-		);
+		// Collect data for mail
+		$data = [
+			'name' => $user['name'],
+			'sitename' => $this->app->get('sitename'),
+			'url' => Uri::root(),
+			'username' => $user['username'],
+			'password' => $user['password_clear'],
+			'email' => $user['email'],
+		];
 
-		// Compute the mail body.
-		$emailBody = Text::sprintf(
-			'PLG_USER_JOOMLA_NEW_USER_EMAIL_BODY',
-			$user['name'],
-			$this->app->get('sitename'),
-			Uri::root(),
-			$user['username'],
-			$user['password_clear']
-		);
+		$mailer = new MailTemplate('plg_user_joomla.mail', $userLocale);
+		$mailer->addTemplateData($data);
+		$mailer->addRecipient($user['email'], $user['name']);
 
-		$res = Factory::getMailer()->sendMail(
-			$this->app->get('mailfrom'),
-			$this->app->get('fromname'),
-			$user['email'],
-			$emailSubject,
-			$emailBody
-		);
+		try
+		{
+			$res = $mailer->send();
+		}
+		catch (\Exception $exception)
+		{
+			try
+			{
+				Log::add(Text::_($exception->getMessage()), Log::WARNING, 'jerror');
+
+				$res = false;
+			}
+			catch (\RuntimeException $exception)
+			{
+				$this->app->enqueueMessage(Text::_($exception->errorMessage()), 'warning');
+
+				$res = false;
+			}
+		}
 
 		if ($res === false)
 		{
@@ -218,7 +262,7 @@ class PlgUserJoomla extends JPlugin
 		// Set application language back to default if we changed it
 		if ($userLocale !== $defaultLocale)
 		{
-			$lang->setLanguage($defaultLocale);
+			Factory::$language = $defaultLanguage;
 		}
 	}
 
@@ -232,7 +276,7 @@ class PlgUserJoomla extends JPlugin
 	 *
 	 * @since   1.5
 	 */
-	public function onUserLogin($user, $options = array())
+	public function onUserLogin($user, $options = [])
 	{
 		$instance = $this->_getUser($user, $options);
 
@@ -269,7 +313,10 @@ class PlgUserJoomla extends JPlugin
 		// Mark the user as logged in
 		$instance->guest = 0;
 
-		$session = Factory::getSession();
+		// Load the logged in user to the application
+		$this->app->loadIdentity($instance);
+
+		$session = $this->app->getSession();
 
 		// Grab the current session ID
 		$oldSessionId = $session->getId();
@@ -277,15 +324,20 @@ class PlgUserJoomla extends JPlugin
 		// Fork the session
 		$session->fork();
 
+		// Register the needed session variables
 		$session->set('user', $instance);
 
-		// Ensure the new session's metadata is written to the database
-		$this->app->checkSession();
+		// Update the user related fields for the Joomla sessions table if tracking session metadata.
+		if ($this->app->get('session_metadata', true))
+		{
+			$this->app->checkSession();
+		}
 
 		// Purge the old session
 		$query = $this->db->getQuery(true)
-			->delete('#__session')
-			->where($this->db->quoteName('session_id') . ' = ' . $this->db->quoteBinary($oldSessionId));
+			->delete($this->db->quoteName('#__session'))
+			->where($this->db->quoteName('session_id') . ' = :sessionid')
+			->bind(':sessionid', $oldSessionId);
 
 		try
 		{
@@ -326,13 +378,15 @@ class PlgUserJoomla extends JPlugin
 	 *
 	 * @since   1.5
 	 */
-	public function onUserLogout($user, $options = array())
+	public function onUserLogout($user, $options = [])
 	{
 		$my      = Factory::getUser();
 		$session = Factory::getSession();
 
+		$userid = (int) $user['id'];
+
 		// Make sure we're a valid user first
-		if ($user['id'] == 0 && !$my->get('tmp_user'))
+		if ($user['id'] === 0 && !$my->get('tmp_user'))
 		{
 			return true;
 		}
@@ -340,7 +394,7 @@ class PlgUserJoomla extends JPlugin
 		$sharedSessions = $this->app->get('shared_session', '0');
 
 		// Check to see if we're deleting the current session
-		if ($my->id == $user['id'] && ($sharedSessions || (!$sharedSessions && $options['clientid'] == $this->app->getClientId())))
+		if ($my->id == $userid && ($sharedSessions || (!$sharedSessions && $options['clientid'] == $this->app->getClientId())))
 		{
 			// Hit the user last visit field
 			$my->setLastVisit();
@@ -349,13 +403,12 @@ class PlgUserJoomla extends JPlugin
 			$session->destroy();
 		}
 
-		// Enable / Disable Forcing logout all users with same userid
-		$forceLogout = $this->params->get('forceLogout', 1);
+		// Enable / Disable Forcing logout all users with same userid, but only if session metadata is tracked
+		$forceLogout = $this->params->get('forceLogout', 1) && $this->app->get('session_metadata', true);
 
 		if ($forceLogout)
 		{
-			$clientId = (!$sharedSessions) ? (int) $options['clientid'] : null;
-
+			$clientId = $sharedSessions ? null : (int) $options['clientid'];
 			UserHelper::destroyUserSessions($user['id'], false, $clientId);
 		}
 
@@ -366,6 +419,74 @@ class PlgUserJoomla extends JPlugin
 		}
 
 		return true;
+	}
+
+	/**
+	 * Hooks on the Joomla! login event. Detects silent logins and disables the Multi-Factor
+	 * Authentication page in this case.
+	 *
+	 * Moreover, it will save the redirection URL and the Captive URL which is necessary in Joomla 4. You see, in Joomla
+	 * 4 having unified sessions turned on makes the backend login redirect you to the frontend of the site AFTER
+	 * logging in, something which would cause the Captive page to appear in the frontend and redirect you to the public
+	 * frontend homepage after successfully passing the Two Step verification process.
+	 *
+	 * @param   array  $options  Passed by Joomla. user: a User object; responseType: string, authentication response type.
+	 *
+	 * @return void
+	 * @since  __DEPLOY_VERSION__
+	 */
+	public function onUserAfterLogin(array $options): void
+	{
+		if (!($this->app->isClient('administrator')) && !($this->app->isClient('site')))
+		{
+			return;
+		}
+
+		$this->disableMfaOnSilentLogin($options);
+	}
+
+	/**
+	 * Detect silent logins and disable MFA if the relevant com_users option is set.
+	 *
+	 * @param   array  $options  The array of login options and login result
+	 *
+	 * @return  void
+	 * @since   __DEPLOY_VERSION__
+	 */
+	private function disableMfaOnSilentLogin(array $options): void
+	{
+		$userParams         = ComponentHelper::getParams('com_users');
+		$doMfaOnSilentLogin = $userParams->get('mfaonsilent', 0) == 1;
+
+		// Should I show MFA even on silent logins? Default: 1 (yes, show)
+		if ($doMfaOnSilentLogin)
+		{
+			return;
+		}
+
+		// Make sure I have a valid user
+		/** @var User $user */
+		$user = $options['user'];
+
+		if (!is_object($user) || !($user instanceof User) || $user->guest)
+		{
+			return;
+		}
+
+		$silentResponseTypes = array_map(
+			'trim',
+			explode(',', $userParams->get('silentresponses', '') ?: '')
+		);
+		$silentResponseTypes = $silentResponseTypes ?: ['cookie', 'passwordless'];
+
+		// Only proceed if this is not a silent login
+		if (!in_array(strtolower($options['responseType'] ?? ''), $silentResponseTypes))
+		{
+			return;
+		}
+
+		// Set the flag indicating that MFA is already checked.
+		$this->app->getSession()->set('com_users.mfa_checked', 1);
 	}
 
 	/**
@@ -380,7 +501,7 @@ class PlgUserJoomla extends JPlugin
 	 *
 	 * @since   1.5
 	 */
-	protected function _getUser($user, $options = array())
+	protected function _getUser($user, $options = [])
 	{
 		$instance = User::getInstance();
 		$id = (int) UserHelper::getUserId($user['username']);
@@ -392,7 +513,7 @@ class PlgUserJoomla extends JPlugin
 			return $instance;
 		}
 
-		// TODO : move this out of the plugin
+		// @todo : move this out of the plugin
 		$params = ComponentHelper::getParams('com_users');
 
 		// Read the default user group option from com_users
@@ -405,16 +526,16 @@ class PlgUserJoomla extends JPlugin
 
 		// Result should contain an email (check).
 		$instance->email = $user['email'];
-		$instance->groups = array($defaultUserGroup);
+		$instance->groups = [$defaultUserGroup];
 
 		// If autoregister is set let's register the user
-		$autoregister = isset($options['autoregister']) ? $options['autoregister'] : $this->params->get('autoregister', 1);
+		$autoregister = $options['autoregister'] ?? $this->params->get('autoregister', 1);
 
 		if ($autoregister)
 		{
 			if (!$instance->save())
 			{
-				JLog::add('Error in autoregistration for user ' . $user['username'] . '.', JLog::WARNING, 'error');
+				Log::add('Failed to automatically create account for user ' . $user['username'] . '.', Log::WARNING, 'error');
 			}
 		}
 		else

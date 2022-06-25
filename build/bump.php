@@ -43,11 +43,13 @@ $coreXmlFiles = array(
 );
 
 $languageXmlFiles = array(
-	'/language/en-GB/en-GB.xml',
+	'/language/en-GB/langmetadata.xml',
 	'/language/en-GB/install.xml',
-	'/administrator/language/en-GB/en-GB.xml',
+	'/administrator/language/en-GB/langmetadata.xml',
 	'/administrator/language/en-GB/install.xml',
-	'/installation/language/en-GB/en-GB.xml',
+	'/installation/language/en-GB/langmetadata.xml',
+	'/api/language/en-GB/langmetadata.xml',
+	'/api/language/en-GB/install.xml',
 );
 
 $languagePackXmlFile = '/administrator/manifests/packages/pkg_en-GB.xml';
@@ -71,11 +73,8 @@ $directoryLoopExcludeDirectories = array(
 	'/build/coverage/',
 	'/build/tmp/',
 	'/libraries/vendor/',
-	'/libraries/phputf8/',
 	'/libraries/php-encryption/',
 	'/libraries/phpass/',
-	'/libraries/idna_convert/',
-	'/libraries/fof/',
 );
 
 $directoryLoopExcludeFiles = array();
@@ -169,7 +168,7 @@ $version = array(
 	'reldate'    => date('j-F-Y'),
 	'reltime'    => date('H:i'),
 	'reltz'      => 'GMT',
-	'credate'    => date('F Y'),
+	'credate'    => date('Y-m'),
 );
 
 // Version Codename.

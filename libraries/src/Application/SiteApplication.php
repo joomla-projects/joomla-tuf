@@ -8,11 +8,25 @@
 
 namespace Joomla\CMS\Application;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
+use Joomla\Application\Web\WebClient;
+use Joomla\CMS\Cache\CacheControllerFactoryInterface;
+use Joomla\CMS\Cache\Controller\OutputController;
 use Joomla\CMS\Component\ComponentHelper;
+use Joomla\CMS\Factory;
+use Joomla\CMS\Filter\InputFilter;
 use Joomla\CMS\Input\Input;
+use Joomla\CMS\Language\LanguageHelper;
+use Joomla\CMS\Language\Text;
+use Joomla\CMS\Pathway\Pathway;
+use Joomla\CMS\Plugin\PluginHelper;
+use Joomla\CMS\Router\Route;
+use Joomla\CMS\Router\SiteRouter;
+use Joomla\CMS\Uri\Uri;
+use Joomla\DI\Container;
 use Joomla\Registry\Registry;
+use Joomla\String\StringHelper;
 
 /**
  * Joomla! Site Application class
@@ -21,49 +35,50 @@ use Joomla\Registry\Registry;
  */
 final class SiteApplication extends CMSApplication
 {
+	use MultiFactorAuthenticationHandler;
+
 	/**
 	 * Option to filter by language
 	 *
 	 * @var    boolean
-	 * @since  3.2
-	 * @deprecated  4.0  Will be renamed $language_filter
+	 * @since  4.0.0
 	 */
-	protected $_language_filter = false;
+	protected $language_filter = false;
 
 	/**
 	 * Option to detect language by the browser
 	 *
 	 * @var    boolean
-	 * @since  3.2
-	 * @deprecated  4.0  Will be renamed $detect_browser
+	 * @since  4.0.0
 	 */
-	protected $_detect_browser = false;
+	protected $detect_browser = false;
 
 	/**
 	 * Class constructor.
 	 *
-	 * @param   Input                   $input   An optional argument to provide dependency injection for the application's
-	 *                                           input object.  If the argument is a \JInput object that object will become
-	 *                                           the application's input object, otherwise a default input object is created.
-	 * @param   Registry                $config  An optional argument to provide dependency injection for the application's
-	 *                                           config object.  If the argument is a Registry object that object will become
-	 *                                           the application's config object, otherwise a default config object is created.
-	 * @param   \JApplicationWebClient  $client  An optional argument to provide dependency injection for the application's
-	 *                                           client object.  If the argument is a \JApplicationWebClient object that object will become
-	 *                                           the application's client object, otherwise a default client object is created.
+	 * @param   Input      $input      An optional argument to provide dependency injection for the application's input
+	 *                                 object.  If the argument is a JInput object that object will become the
+	 *                                 application's input object, otherwise a default input object is created.
+	 * @param   Registry   $config     An optional argument to provide dependency injection for the application's config
+	 *                                 object.  If the argument is a Registry object that object will become the
+	 *                                 application's config object, otherwise a default config object is created.
+	 * @param   WebClient  $client     An optional argument to provide dependency injection for the application's client
+	 *                                 object.  If the argument is a WebClient object that object will become the
+	 *                                 application's client object, otherwise a default client object is created.
+	 * @param   Container  $container  Dependency injection container.
 	 *
 	 * @since   3.2
 	 */
-	public function __construct(Input $input = null, Registry $config = null, \JApplicationWebClient $client = null)
+	public function __construct(Input $input = null, Registry $config = null, WebClient $client = null, Container $container = null)
 	{
 		// Register the application name
-		$this->_name = 'site';
+		$this->name = 'site';
 
 		// Register the client ID
-		$this->_clientId = 0;
+		$this->clientId = 0;
 
 		// Execute the parent constructor
-		parent::__construct($input, $config, $client);
+		parent::__construct($input, $config, $client, $container);
 	}
 
 	/**
@@ -80,18 +95,18 @@ final class SiteApplication extends CMSApplication
 	protected function authorise($itemid)
 	{
 		$menus = $this->getMenu();
-		$user = \JFactory::getUser();
+		$user = Factory::getUser();
 
 		if (!$menus->authorise($itemid))
 		{
 			if ($user->get('id') == 0)
 			{
 				// Set the data
-				$this->setUserState('users.login.form.data', array('return' => \JUri::getInstance()->toString()));
+				$this->setUserState('users.login.form.data', array('return' => Uri::getInstance()->toString()));
 
-				$url = \JRoute::_('index.php?option=com_users&view=login', false);
+				$url = Route::_('index.php?option=com_users&view=login', false);
 
-				$this->enqueueMessage(\JText::_('JGLOBAL_YOU_MUST_LOGIN_FIRST'), 'error');
+				$this->enqueueMessage(Text::_('JGLOBAL_YOU_MUST_LOGIN_FIRST'), 'error');
 				$this->redirect($url);
 			}
 			else
@@ -102,12 +117,12 @@ final class SiteApplication extends CMSApplication
 				// If we are already in the homepage raise an exception
 				if ($menus->getActive()->id == $home_item->id)
 				{
-					throw new \Exception(\JText::_('JERROR_ALERTNOAUTHOR'), 403);
+					throw new \Exception(Text::_('JERROR_ALERTNOAUTHOR'), 403);
 				}
 
 				// Otherwise redirect to the homepage and show an error
-				$this->enqueueMessage(\JText::_('JERROR_ALERTNOAUTHOR'), 'error');
-				$this->redirect(\JRoute::_('index.php?Itemid=' . $home_item->id, false));
+				$this->enqueueMessage(Text::_('JERROR_ALERTNOAUTHOR'), 'error');
+				$this->redirect(Route::_('index.php?Itemid=' . $home_item->id, false));
 			}
 		}
 	}
@@ -134,35 +149,19 @@ final class SiteApplication extends CMSApplication
 
 		// Set up the params
 		$document = $this->getDocument();
-		$router   = static::getRouter();
 		$params   = $this->getParams();
 
-		// Register the document object with \JFactory
-		\JFactory::$document = $document;
+		// Register the document object with Factory
+		Factory::$document = $document;
 
 		switch ($document->getType())
 		{
 			case 'html':
-				// Get language
-				$lang_code = $this->getLanguage()->getTag();
-				$languages = \JLanguageHelper::getLanguages('lang_code');
+				// Set up the language
+				LanguageHelper::getLanguages('lang_code');
 
 				// Set metadata
-				if (isset($languages[$lang_code]) && $languages[$lang_code]->metakey)
-				{
-					$document->setMetaData('keywords', $languages[$lang_code]->metakey);
-				}
-				else
-				{
-					$document->setMetaData('keywords', $this->get('MetaKeys'));
-				}
-
 				$document->setMetaData('rights', $this->get('MetaRights'));
-
-				if ($router->getMode() == JROUTER_MODE_SEF)
-				{
-					$document->setBase(htmlspecialchars(\JUri::current()));
-				}
 
 				// Get the template
 				$template = $this->getTemplate(true);
@@ -171,10 +170,25 @@ final class SiteApplication extends CMSApplication
 				$this->set('theme', $template->template);
 				$this->set('themeParams', $template->params);
 
+				// Add Asset registry files
+				$wr = $document->getWebAssetManager()->getRegistry();
+
+				if ($component)
+				{
+					$wr->addExtensionRegistryFile($component);
+				}
+
+				if ($template->parent)
+				{
+					$wr->addTemplateRegistryFile($template->parent, $this->getClientId());
+				}
+
+				$wr->addTemplateRegistryFile($template->template, $this->getClientId());
+
 				break;
 
 			case 'feed':
-				$document->setBase(htmlspecialchars(\JUri::current()));
+				$document->setBase(htmlspecialchars(Uri::current()));
 				break;
 		}
 
@@ -195,7 +209,7 @@ final class SiteApplication extends CMSApplication
 		$document->setBuffer($contents, 'component');
 
 		// Trigger the onAfterDispatch event.
-		\JPluginHelper::importPlugin('system');
+		PluginHelper::importPlugin('system');
 		$this->triggerEvent('onAfterDispatch');
 	}
 
@@ -220,14 +234,17 @@ final class SiteApplication extends CMSApplication
 		// Mark afterRoute in the profiler.
 		JDEBUG ? $this->profiler->mark('afterRoute') : null;
 
-		/*
-		 * Check if the user is required to reset their password
-		 *
-		 * Before $this->route(); "option" and "view" can't be safely read using:
-		 * $this->input->getCmd('option'); or $this->input->getCmd('view');
-		 * ex: due of the sef urls
-		 */
-		$this->checkUserRequireReset('com_users', 'profile', 'edit', 'com_users/profile.save,com_users/profile.apply,com_users/user.logout');
+		if (!$this->isHandlingMultiFactorAuthentication())
+		{
+			/*
+			 * Check if the user is required to reset their password
+			 *
+			 * Before $this->route(); "option" and "view" can't be safely read using:
+			 * $this->input->getCmd('option'); or $this->input->getCmd('view');
+			 * ex: due of the sef urls
+			 */
+			$this->checkUserRequireReset('com_users', 'profile', 'edit', 'com_users/profile.save,com_users/profile.apply,com_users/user.logout');
+		}
 
 		// Dispatch the application
 		$this->dispatch();
@@ -245,7 +262,7 @@ final class SiteApplication extends CMSApplication
 	 */
 	public function getDetectBrowser()
 	{
-		return $this->_detect_browser;
+		return $this->detect_browser;
 	}
 
 	/**
@@ -257,37 +274,7 @@ final class SiteApplication extends CMSApplication
 	 */
 	public function getLanguageFilter()
 	{
-		return $this->_language_filter;
-	}
-
-	/**
-	 * Return a reference to the \JMenu object.
-	 *
-	 * @param   string  $name     The name of the application/client.
-	 * @param   array   $options  An optional associative array of configuration settings.
-	 *
-	 * @return  \JMenu  \JMenu object.
-	 *
-	 * @since   3.2
-	 */
-	public function getMenu($name = 'site', $options = array())
-	{
-		return parent::getMenu($name, $options);
-	}
-
-	/**
-	 * Get the application parameters
-	 *
-	 * @param   string  $option  The component option
-	 *
-	 * @return  Registry  The parameters object
-	 *
-	 * @since   3.2
-	 * @deprecated  4.0  Use getParams() instead
-	 */
-	public function getPageParameters($option = null)
-	{
-		return $this->getParams($option);
+		return $this->language_filter;
 	}
 
 	/**
@@ -327,7 +314,7 @@ final class SiteApplication extends CMSApplication
 
 			// Get language
 			$lang_code = $this->getLanguage()->getTag();
-			$languages = \JLanguageHelper::getLanguages('lang_code');
+			$languages = LanguageHelper::getLanguages('lang_code');
 
 			$title = $this->get('sitename');
 
@@ -347,12 +334,12 @@ final class SiteApplication extends CMSApplication
 			$temp = clone ComponentHelper::getParams('com_menus');
 
 			// Lets cascade the parameters if we have menu item parameters
-			if (is_object($menu))
+			if (\is_object($menu))
 			{
 				// Get show_page_heading from com_menu global settings
 				$params[$hash]->def('show_page_heading', $temp->get('show_page_heading'));
 
-				$params[$hash]->merge($menu->params);
+				$params[$hash]->merge($menu->getParams());
 				$title = $menu->title;
 			}
 			else
@@ -374,12 +361,12 @@ final class SiteApplication extends CMSApplication
 	}
 
 	/**
-	 * Return a reference to the \JPathway object.
+	 * Return a reference to the Pathway object.
 	 *
 	 * @param   string  $name     The name of the application.
 	 * @param   array   $options  An optional associative array of configuration settings.
 	 *
-	 * @return  \JPathway  A \JPathway object
+	 * @return  Pathway  A Pathway object
 	 *
 	 * @since   3.2
 	 */
@@ -389,14 +376,16 @@ final class SiteApplication extends CMSApplication
 	}
 
 	/**
-	 * Return a reference to the \JRouter object.
+	 * Return a reference to the Router object.
 	 *
 	 * @param   string  $name     The name of the application.
 	 * @param   array   $options  An optional associative array of configuration settings.
 	 *
-	 * @return	\JRouter
+	 * @return	\Joomla\CMS\Router\Router
 	 *
-	 * @since	3.2
+	 * @since      3.2
+	 *
+	 * @deprecated 5.0 Inject the router or load it from the dependency injection container
 	 */
 	public static function getRouter($name = 'site', array $options = array())
 	{
@@ -415,11 +404,21 @@ final class SiteApplication extends CMSApplication
 	 */
 	public function getTemplate($params = false)
 	{
-		if (is_object($this->template))
+		if (\is_object($this->template))
 		{
-			if (!file_exists(JPATH_THEMES . '/' . $this->template->template . '/index.php'))
+			if ($this->template->parent)
 			{
-				throw new \InvalidArgumentException(\JText::sprintf('JERROR_COULD_NOT_FIND_TEMPLATE', $this->template->template));
+				if (!is_file(JPATH_THEMES . '/' . $this->template->template . '/index.php'))
+				{
+					if (!is_file(JPATH_THEMES . '/' . $this->template->parent . '/index.php'))
+					{
+						throw new \InvalidArgumentException(Text::sprintf('JERROR_COULD_NOT_FIND_TEMPLATE', $this->template->template));
+					}
+				}
+			}
+			elseif (!is_file(JPATH_THEMES . '/' . $this->template->template . '/index.php'))
+			{
+				throw new \InvalidArgumentException(Text::sprintf('JERROR_COULD_NOT_FIND_TEMPLATE', $this->template->template));
 			}
 
 			if ($params)
@@ -441,7 +440,7 @@ final class SiteApplication extends CMSApplication
 
 		$id = 0;
 
-		if (is_object($item))
+		if (\is_object($item))
 		{
 			// Valid item retrieved
 			$id = $item->template_style_id;
@@ -454,9 +453,10 @@ final class SiteApplication extends CMSApplication
 			$id = (int) $tid;
 		}
 
-		$cache = \JFactory::getCache('com_templates', '');
+		/** @var OutputController $cache */
+		$cache = Factory::getContainer()->get(CacheControllerFactoryInterface::class)->createCacheController('output', ['defaultgroup' => 'com_templates']);
 
-		if ($this->_language_filter)
+		if ($this->getLanguageFilter())
 		{
 			$tag = $this->getLanguage()->getTag();
 		}
@@ -474,13 +474,24 @@ final class SiteApplication extends CMSApplication
 		else
 		{
 			// Load styles
-			$db = \JFactory::getDbo();
+			$db = Factory::getDbo();
+
 			$query = $db->getQuery(true)
-				->select('id, home, template, s.params')
-				->from('#__template_styles as s')
-				->where('s.client_id = 0')
-				->where('e.enabled = 1')
-				->join('LEFT', '#__extensions as e ON e.element=s.template AND e.type=' . $db->quote('template') . ' AND e.client_id=s.client_id');
+				->select($db->quoteName(['id', 'home', 'template', 's.params', 'inheritable', 'parent']))
+				->from($db->quoteName('#__template_styles', 's'))
+				->where(
+					[
+						$db->quoteName('s.client_id') . ' = 0',
+						$db->quoteName('e.enabled') . ' = 1',
+					]
+				)
+				->join(
+					'LEFT',
+					$db->quoteName('#__extensions', 'e'),
+					$db->quoteName('e.element') . ' = ' . $db->quoteName('s.template')
+						. ' AND ' . $db->quoteName('e.type') . ' = ' . $db->quote('template')
+						. ' AND ' . $db->quoteName('e.client_id') . ' = ' . $db->quoteName('s.client_id')
+				);
 
 			$db->setQuery($query);
 			$templates = $db->loadObjectList('id');
@@ -488,7 +499,7 @@ final class SiteApplication extends CMSApplication
 			foreach ($templates as &$template)
 			{
 				// Create home element
-				if ($template->home == 1 && !isset($template_home) || $this->_language_filter && $template->home == $tag)
+				if ($template->home == 1 && !isset($template_home) || $this->getLanguageFilter() && $template->home == $tag)
 				{
 					$template_home = clone $template;
 				}
@@ -524,7 +535,7 @@ final class SiteApplication extends CMSApplication
 		// Only set template override if it is a valid template (= it exists and is enabled)
 		if (!empty($template_override))
 		{
-			if (file_exists(JPATH_THEMES . '/' . $template_override . '/index.php'))
+			if (is_file(JPATH_THEMES . '/' . $template_override . '/index.php'))
 			{
 				foreach ($templates as $tmpl)
 				{
@@ -538,19 +549,47 @@ final class SiteApplication extends CMSApplication
 		}
 
 		// Need to filter the default value as well
-		$template->template = \JFilterInput::getInstance()->clean($template->template, 'cmd');
+		$template->template = InputFilter::getInstance()->clean($template->template, 'cmd');
 
 		// Fallback template
-		if (!file_exists(JPATH_THEMES . '/' . $template->template . '/index.php'))
+		if (!empty($template->parent))
 		{
-			$this->enqueueMessage(\JText::_('JERROR_ALERTNOTEMPLATE'), 'error');
+			if (!is_file(JPATH_THEMES . '/' . $template->template . '/index.php'))
+			{
+				if (!is_file(JPATH_THEMES . '/' . $template->parent . '/index.php'))
+				{
+					$this->enqueueMessage(Text::_('JERROR_ALERTNOTEMPLATE'), 'error');
 
-			// Try to find data for 'beez3' template
+					// Try to find data for 'cassiopeia' template
+					$original_tmpl = $template->template;
+
+					foreach ($templates as $tmpl)
+					{
+						if ($tmpl->template === 'cassiopeia')
+						{
+							$template = $tmpl;
+							break;
+						}
+					}
+
+					// Check, the data were found and if template really exists
+					if (!is_file(JPATH_THEMES . '/' . $template->template . '/index.php'))
+					{
+						throw new \InvalidArgumentException(Text::sprintf('JERROR_COULD_NOT_FIND_TEMPLATE', $original_tmpl));
+					}
+				}
+			}
+		}
+		elseif (!is_file(JPATH_THEMES . '/' . $template->template . '/index.php'))
+		{
+			$this->enqueueMessage(Text::_('JERROR_ALERTNOTEMPLATE'), 'error');
+
+			// Try to find data for 'cassiopeia' template
 			$original_tmpl = $template->template;
 
 			foreach ($templates as $tmpl)
 			{
-				if ($tmpl->template === 'beez3')
+				if ($tmpl->template === 'cassiopeia')
 				{
 					$template = $tmpl;
 					break;
@@ -558,9 +597,9 @@ final class SiteApplication extends CMSApplication
 			}
 
 			// Check, the data were found and if template really exists
-			if (!file_exists(JPATH_THEMES . '/' . $template->template . '/index.php'))
+			if (!is_file(JPATH_THEMES . '/' . $template->template . '/index.php'))
 			{
-				throw new \InvalidArgumentException(\JText::sprintf('JERROR_COULD_NOT_FIND_TEMPLATE', $original_tmpl));
+				throw new \InvalidArgumentException(Text::sprintf('JERROR_COULD_NOT_FIND_TEMPLATE', $original_tmpl));
 			}
 		}
 
@@ -586,7 +625,7 @@ final class SiteApplication extends CMSApplication
 	 */
 	protected function initialiseApp($options = array())
 	{
-		$user = \JFactory::getUser();
+		$user = Factory::getUser();
 
 		// If the user is a guest we populate it with the guest user group.
 		if ($user->guest)
@@ -595,20 +634,11 @@ final class SiteApplication extends CMSApplication
 			$user->groups = array($guestUsergroup);
 		}
 
-		/*
-		 * If a language was specified it has priority, otherwise use user or default language settings
-		 * Check this only if the languagefilter plugin is enabled
-		 *
-		 * @TODO - Remove the hardcoded dependency to the languagefilter plugin
-		 */
-		if (\JPluginHelper::isEnabled('system', 'languagefilter'))
+		if ($plugin = PluginHelper::getPlugin('system', 'languagefilter'))
 		{
-			$plugin = \JPluginHelper::getPlugin('system', 'languagefilter');
-
 			$pluginParams = new Registry($plugin->params);
-
 			$this->setLanguageFilter(true);
-			$this->setDetectBrowser($pluginParams->get('detect_browser', '1') == '1');
+			$this->setDetectBrowser($pluginParams->get('detect_browser', 1) == 1);
 		}
 
 		if (empty($options['language']))
@@ -617,7 +647,7 @@ final class SiteApplication extends CMSApplication
 			$lang = $this->input->getString('language', null);
 
 			// Make sure that the user's language exists
-			if ($lang && \JLanguageHelper::exists($lang))
+			if ($lang && LanguageHelper::exists($lang))
 			{
 				$options['language'] = $lang;
 			}
@@ -629,7 +659,7 @@ final class SiteApplication extends CMSApplication
 			$lang = $this->input->cookie->get(md5($this->get('secret') . 'language'), null, 'string');
 
 			// Make sure that the user's language exists
-			if ($lang && \JLanguageHelper::exists($lang))
+			if ($lang && LanguageHelper::exists($lang))
 			{
 				$options['language'] = $lang;
 			}
@@ -641,7 +671,7 @@ final class SiteApplication extends CMSApplication
 			$lang = $user->getParam('language');
 
 			// Make sure that the user's language exists
-			if ($lang && \JLanguageHelper::exists($lang))
+			if ($lang && LanguageHelper::exists($lang))
 			{
 				$options['language'] = $lang;
 			}
@@ -650,10 +680,10 @@ final class SiteApplication extends CMSApplication
 		if (empty($options['language']) && $this->getDetectBrowser())
 		{
 			// Detect browser language
-			$lang = \JLanguageHelper::detectLanguage();
+			$lang = LanguageHelper::detectLanguage();
 
 			// Make sure that the user's language exists
-			if ($lang && \JLanguageHelper::exists($lang))
+			if ($lang && LanguageHelper::exists($lang))
 			{
 				$options['language'] = $lang;
 			}
@@ -667,11 +697,11 @@ final class SiteApplication extends CMSApplication
 		}
 
 		// One last check to make sure we have something
-		if (!\JLanguageHelper::exists($options['language']))
+		if (!LanguageHelper::exists($options['language']))
 		{
 			$lang = $this->config->get('language', 'en-GB');
 
-			if (\JLanguageHelper::exists($lang))
+			if (LanguageHelper::exists($lang))
 			{
 				$options['language'] = $lang;
 			}
@@ -699,8 +729,8 @@ final class SiteApplication extends CMSApplication
 		 * Try the lib_joomla file in the current language (without allowing the loading of the file in the default language)
 		 * Fallback to the default language if necessary
 		 */
-		$this->getLanguage()->load('lib_joomla', JPATH_SITE, null, false, true)
-			|| $this->getLanguage()->load('lib_joomla', JPATH_ADMINISTRATOR, null, false, true);
+		$this->getLanguage()->load('lib_joomla', JPATH_SITE)
+			|| $this->getLanguage()->load('lib_joomla', JPATH_ADMINISTRATOR);
 	}
 
 	/**
@@ -716,9 +746,9 @@ final class SiteApplication extends CMSApplication
 	public function login($credentials, $options = array())
 	{
 		// Set the application login entry point
-		if (!array_key_exists('entry_url', $options))
+		if (!\array_key_exists('entry_url', $options))
 		{
-			$options['entry_url'] = \JUri::base() . 'index.php?option=com_users&task=user.login';
+			$options['entry_url'] = Uri::base() . 'index.php?option=com_users&task=user.login';
 		}
 
 		// Set the access control action to check.
@@ -754,9 +784,9 @@ final class SiteApplication extends CMSApplication
 					$this->set('themeFile', 'index.php');
 				}
 
-				if ($this->get('offline') && !\JFactory::getUser()->authorise('core.login.offline'))
+				if ($this->get('offline') && !Factory::getUser()->authorise('core.login.offline'))
 				{
-					$this->setUserState('users.login.form.data', array('return' => \JUri::getInstance()->toString()));
+					$this->setUserState('users.login.form.data', array('return' => Uri::getInstance()->toString()));
 					$this->set('themeFile', 'offline.php');
 					$this->setHeader('Status', '503 Service Temporarily Unavailable', 'true');
 				}
@@ -771,6 +801,9 @@ final class SiteApplication extends CMSApplication
 				{
 					$this->set('themeFile', $file . '.php');
 				}
+
+				// Pass the parent template to the state
+				$this->set('themeInherits', $template->parent);
 
 				break;
 		}
@@ -792,8 +825,59 @@ final class SiteApplication extends CMSApplication
 	 */
 	protected function route()
 	{
-		// Execute the parent method
-		parent::route();
+		// Get the full request URI.
+		$uri = clone Uri::getInstance();
+
+		// It is not possible to inject the SiteRouter as it requires a SiteApplication
+		// and we would end in an infinite loop
+		$result = $this->getContainer()->get(SiteRouter::class)->parse($uri, true);
+
+		$active = $this->getMenu()->getActive();
+
+		if ($active !== null
+			&& $active->type === 'alias'
+			&& $active->getParams()->get('alias_redirect')
+			&& \in_array($this->input->getMethod(), ['GET', 'HEAD'], true))
+		{
+			$item = $this->getMenu()->getItem($active->getParams()->get('aliasoptions'));
+
+			if ($item !== null)
+			{
+				$oldUri = clone Uri::getInstance();
+
+				if ($oldUri->getVar('Itemid') == $active->id)
+				{
+					$oldUri->setVar('Itemid', $item->id);
+				}
+
+				$base = Uri::base(true);
+				$oldPath = StringHelper::strtolower(substr($oldUri->getPath(), \strlen($base) + 1));
+				$activePathPrefix = StringHelper::strtolower($active->route);
+
+				$position = strpos($oldPath, $activePathPrefix);
+
+				if ($position !== false)
+				{
+					$oldUri->setPath($base . '/' . substr_replace($oldPath, $item->route, $position, \strlen($activePathPrefix)));
+
+					$this->setHeader('Expires', 'Wed, 17 Aug 2005 00:00:00 GMT', true);
+					$this->setHeader('Last-Modified', gmdate('D, d M Y H:i:s') . ' GMT', true);
+					$this->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate', false);
+					$this->sendHeaders();
+
+					$this->redirect((string) $oldUri, 301);
+				}
+			}
+		}
+
+		foreach ($result as $key => $value)
+		{
+			$this->input->def($key, $value);
+		}
+
+		// Trigger the onAfterRoute event.
+		PluginHelper::importPlugin('system');
+		$this->triggerEvent('onAfterRoute');
 
 		$Itemid = $this->input->getInt('Itemid', null);
 		$this->authorise($Itemid);
@@ -810,8 +894,8 @@ final class SiteApplication extends CMSApplication
 	 */
 	public function setDetectBrowser($state = false)
 	{
-		$old = $this->_detect_browser;
-		$this->_detect_browser = $state;
+		$old = $this->getDetectBrowser();
+		$this->detect_browser = $state;
 
 		return $old;
 	}
@@ -827,8 +911,8 @@ final class SiteApplication extends CMSApplication
 	 */
 	public function setLanguageFilter($state = false)
 	{
-		$old = $this->_language_filter;
-		$this->_language_filter = $state;
+		$old = $this->getLanguageFilter();
+		$this->language_filter = $state;
 
 		return $old;
 	}
@@ -836,8 +920,8 @@ final class SiteApplication extends CMSApplication
 	/**
 	 * Overrides the default template that would be used
 	 *
-	 * @param   string  $template     The template name
-	 * @param   mixed   $styleParams  The template style parameters
+	 * @param   \stdClass|string $template    The template name or definition
+	 * @param   mixed            $styleParams The template style parameters
 	 *
 	 * @return  void
 	 *
@@ -845,19 +929,45 @@ final class SiteApplication extends CMSApplication
 	 */
 	public function setTemplate($template, $styleParams = null)
 	{
-		if (is_dir(JPATH_THEMES . '/' . $template))
+		if (is_object($template))
+		{
+			$templateName        = empty($template->template)
+				? ''
+				: $template->template;
+			$templateInheritable = empty($template->inheritable)
+				? 0
+				: $template->inheritable;
+			$templateParent      = empty($template->parent)
+				? ''
+				: $template->parent;
+			$templateParams      = empty($template->params)
+				? $styleParams
+				: $template->params;
+		}
+		else
+		{
+			$templateName        = $template;
+			$templateInheritable = 0;
+			$templateParent      = '';
+			$templateParams      = $styleParams;
+		}
+
+		if (is_dir(JPATH_THEMES . '/' . $templateName))
 		{
 			$this->template = new \stdClass;
-			$this->template->template = $template;
+			$this->template->template = $templateName;
 
-			if ($styleParams instanceof Registry)
+			if ($templateParams instanceof Registry)
 			{
-				$this->template->params = $styleParams;
+				$this->template->params = $templateParams;
 			}
 			else
 			{
-				$this->template->params = new Registry($styleParams);
+				$this->template->params = new Registry($templateParams);
 			}
+
+			$this->template->inheritable = $templateInheritable;
+			$this->template->parent      = $templateParent;
 
 			// Store the template and its params to the config
 			$this->set('theme', $this->template->template);

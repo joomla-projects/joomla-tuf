@@ -8,12 +8,14 @@
 
 namespace Joomla\CMS\Updater;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
 use Joomla\CMS\Factory;
 use Joomla\CMS\Filter\InputFilter;
 use Joomla\CMS\Http\HttpFactory;
+use Joomla\CMS\Language\Text;
 use Joomla\CMS\Log\Log;
+use Joomla\CMS\Object\CMSObject;
 use Joomla\CMS\Version;
 use Joomla\Registry\Registry;
 
@@ -23,7 +25,7 @@ use Joomla\Registry\Registry;
  *
  * @since  1.7.0
  */
-class Update extends \JObject
+class Update extends CMSObject
 {
 	/**
 	 * Update manifest `<name>` element
@@ -209,7 +211,7 @@ class Update extends \JObject
 	 * 3	rc			Release Candidate versions (almost stable, minor bugs might be present)
 	 * 4	stable		Stable versions (production quality code)
 	 *
-	 * @var    int
+	 * @var    integer
 	 * @since  14.1
 	 *
 	 * @see    Updater
@@ -227,7 +229,7 @@ class Update extends \JObject
 	/**
 	 * Gets the reference to the current direct parent
 	 *
-	 * @return  object
+	 * @return  string
 	 *
 	 * @since   1.7.0
 	 */
@@ -245,7 +247,7 @@ class Update extends \JObject
 	 */
 	protected function _getLastTag()
 	{
-		return $this->stack[count($this->stack) - 1];
+		return $this->stack[\count($this->stack) - 1];
 	}
 
 	/**
@@ -337,34 +339,10 @@ class Update extends \JObject
 			case 'UPDATE':
 				$product = strtolower(InputFilter::getInstance()->clean(Version::PRODUCT, 'cmd'));
 
-				// Support for the min_dev_level and max_dev_level attributes is deprecated, a regexp should be used instead
-				if (isset($this->currentUpdate->targetplatform->min_dev_level) || isset($this->currentUpdate->targetplatform->max_dev_level))
-				{
-					Log::add(
-						'Support for the min_dev_level and max_dev_level attributes of an update\'s <targetplatform> tag is deprecated and'
-						. ' will be removed in 4.0. The full version should be specified in the version attribute and may optionally be a regexp.',
-						Log::WARNING,
-						'deprecated'
-					);
-				}
-
-				/*
-				 * Check that the product matches and that the version matches (optionally a regexp)
-				 *
-				 * Check for optional min_dev_level and max_dev_level attributes to further specify targetplatform (e.g., 3.0.1)
-				 */
-				$patchVersion = $this->get('jversion.dev_level', Version::PATCH_VERSION);
-				$patchMinimumSupported = !isset($this->currentUpdate->targetplatform->min_dev_level)
-					|| $patchVersion >= $this->currentUpdate->targetplatform->min_dev_level;
-
-				$patchMaximumSupported = !isset($this->currentUpdate->targetplatform->max_dev_level)
-					|| $patchVersion <= $this->currentUpdate->targetplatform->max_dev_level;
-
+				// Check that the product matches and that the version matches (optionally a regexp)
 				if (isset($this->currentUpdate->targetplatform->name)
 					&& $product == $this->currentUpdate->targetplatform->name
-					&& preg_match('/^' . $this->currentUpdate->targetplatform->version . '/', $this->get('jversion.full', JVERSION))
-					&& $patchMinimumSupported
-					&& $patchMaximumSupported)
+					&& preg_match('/^' . $this->currentUpdate->targetplatform->version . '/', $this->get('jversion.full', JVERSION)))
 				{
 					$phpMatch = false;
 
@@ -399,8 +377,8 @@ class Update extends \JObject
 						// Do we have an entry for the database?
 						if (isset($supportedDbs->$dbType))
 						{
-							$minumumVersion = $supportedDbs->$dbType;
-							$dbMatch        = version_compare($dbVersion, $minumumVersion, '>=');
+							$minimumVersion = $supportedDbs->$dbType;
+							$dbMatch        = version_compare($dbVersion, $minimumVersion, '>=');
 						}
 					}
 					else
@@ -471,14 +449,14 @@ class Update extends \JObject
 		// Throw the data for this item together
 		$tag = strtolower($tag);
 
-		if ($tag == 'tag')
+		if ($tag === 'tag')
 		{
 			$this->currentUpdate->stability = $this->stabilityTagToInteger((string) $data);
 
 			return;
 		}
 
-		if ($tag == 'downloadsource')
+		if ($tag === 'downloadsource')
 		{
 			// Grab the last source so we can append the URL
 			$source = end($this->downloadSources);
@@ -521,8 +499,8 @@ class Update extends \JObject
 
 		if ($response === null || $response->code !== 200)
 		{
-			// TODO: Add a 'mark bad' setting here somehow
-			Log::add(\JText::sprintf('JLIB_UPDATER_ERROR_EXTENSION_OPEN_URL', $url), Log::WARNING, 'jerror');
+			// @todo: Add a 'mark bad' setting here somehow
+			Log::add(Text::sprintf('JLIB_UPDATER_ERROR_EXTENSION_OPEN_URL', $url), Log::WARNING, 'jerror');
 
 			return false;
 		}
@@ -566,9 +544,9 @@ class Update extends \JObject
 	{
 		$constant = '\\Joomla\\CMS\\Updater\\Updater::STABILITY_' . strtoupper($tag);
 
-		if (defined($constant))
+		if (\defined($constant))
 		{
-			return constant($constant);
+			return \constant($constant);
 		}
 
 		return Updater::STABILITY_STABLE;

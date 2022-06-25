@@ -8,11 +8,12 @@
 
 namespace Joomla\CMS\String;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
+use Algo26\IdnaConvert\ToIdn;
+use Algo26\IdnaConvert\ToUnicode;
+use Algo26\IdnaConvert\Exception\AlreadyPunycodeException;
 use Joomla\Uri\UriHelper;
-
-\JLoader::register('idna_convert', JPATH_LIBRARIES . '/idna_convert/idna_convert.class.php');
 
 /**
  * Joomla Platform String Punycode Class
@@ -36,9 +37,16 @@ abstract class PunycodeHelper
 	 */
 	public static function toPunycode($utfString)
 	{
-		$idn = new \idna_convert;
+		try
+		{
+			$converted = (new ToIdn)->convert($utfString);
+		}
+		catch (AlreadyPunycodeException $e)
+		{
+			$converted = $utfString;
+		}
 
-		return $idn->encode($utfString);
+		return $converted;
 	}
 
 	/**
@@ -52,9 +60,7 @@ abstract class PunycodeHelper
 	 */
 	public static function fromPunycode($punycodeString)
 	{
-		$idn = new \idna_convert;
-
-		return $idn->decode($punycodeString);
+		return (new ToUnicode)->convert($punycodeString);
 	}
 
 	/**
@@ -136,7 +142,7 @@ abstract class PunycodeHelper
 	{
 		if (empty($uri))
 		{
-			return;
+			return '';
 		}
 
 		$parsed = UriHelper::parse_url($uri);

@@ -8,11 +8,13 @@
 
 namespace Joomla\CMS\Cache;
 
-defined('JPATH_PLATFORM') or die;
+\defined('JPATH_PLATFORM') or die;
 
 use Joomla\Application\Web\WebClient;
 use Joomla\CMS\Cache\Exception\CacheExceptionInterface;
-use Joomla\String\StringHelper;
+use Joomla\CMS\Factory;
+use Joomla\CMS\Filesystem\Path;
+use Joomla\CMS\Session\Session;
 
 /**
  * Joomla! Cache base object
@@ -46,18 +48,18 @@ class Cache
 	 */
 	public function __construct($options)
 	{
-		$conf = \JFactory::getConfig();
+		$app = Factory::getApplication();
 
 		$this->_options = array(
-			'cachebase'    => $conf->get('cache_path', JPATH_CACHE),
-			'lifetime'     => (int) $conf->get('cachetime'),
-			'language'     => $conf->get('language', 'en-GB'),
-			'storage'      => $conf->get('cache_handler', ''),
+			'cachebase'    => $app->get('cache_path', JPATH_CACHE),
+			'lifetime'     => (int) $app->get('cachetime'),
+			'language'     => $app->get('language', 'en-GB'),
+			'storage'      => $app->get('cache_handler', ''),
 			'defaultgroup' => 'default',
 			'locking'      => true,
 			'locktime'     => 15,
 			'checkTime'    => true,
-			'caching'      => ($conf->get('caching') >= 1) ? true : false,
+			'caching'      => ($app->get('caching') >= 1),
 		);
 
 		// Overwrite default options with given options
@@ -83,11 +85,20 @@ class Cache
 	 *
 	 * @return  CacheController
 	 *
-	 * @since   1.7.0
+	 * @since       1.7.0
+	 * @deprecated  5.0 Use the cache controller factory instead
 	 */
 	public static function getInstance($type = 'output', $options = array())
 	{
-		return CacheController::getInstance($type, $options);
+		@trigger_error(
+			sprintf(
+				'%s() is deprecated. The cache controller should be fetched from the factory.',
+				__METHOD__
+			),
+			E_USER_DEPRECATED
+		);
+
+		return Factory::getContainer()->get(CacheControllerFactoryInterface::class)->createCacheController($type, $options);
 	}
 
 	/**
@@ -110,7 +121,7 @@ class Cache
 			$fileName = $file->getFilename();
 
 			// Only load for php files.
-			if (!$file->isFile() || $file->getExtension() != 'php' || $fileName == 'CacheStorageHelper.php')
+			if (!$file->isFile() || $file->getExtension() !== 'php' || $fileName === 'CacheStorageHelper.php')
 			{
 				continue;
 			}
@@ -505,7 +516,7 @@ class Cache
 	/**
 	 * Perform workarounds on retrieved cached data
 	 *
-	 * @param   string  $data     Cached data
+	 * @param   array   $data     Cached data
 	 * @param   array   $options  Array of options
 	 *
 	 * @return  string  Body of cached data
@@ -514,8 +525,8 @@ class Cache
 	 */
 	public static function getWorkarounds($data, $options = array())
 	{
-		$app      = \JFactory::getApplication();
-		$document = \JFactory::getDocument();
+		$app      = Factory::getApplication();
+		$document = Factory::getDocument();
 		$body     = null;
 
 		// Get the document head out of the cache.
@@ -536,7 +547,7 @@ class Cache
 		}
 
 		// If the pathway buffer is set in the cache data, get it.
-		if (isset($data['pathway']) && is_array($data['pathway']))
+		if (isset($data['pathway']) && \is_array($data['pathway']))
 		{
 			// Push the pathway data into the pathway object.
 			$app->getPathway()->setPathway($data['pathway']);
@@ -544,7 +555,7 @@ class Cache
 
 		// @todo check if the following is needed, seems like it should be in page cache
 		// If a module buffer is set in the cache data, get it.
-		if (isset($data['module']) && is_array($data['module']))
+		if (isset($data['module']) && \is_array($data['module']))
 		{
 			// Iterate through the module positions and push them into the document buffer.
 			foreach ($data['module'] as $name => $contents)
@@ -565,9 +576,9 @@ class Cache
 		// The following code searches for a token in the cached page and replaces it with the proper token.
 		if (isset($data['body']))
 		{
-			$token       = \JSession::getFormToken();
-			$search      = '#<input type="hidden" name="[0-9a-f]{32}" value="1" />#';
-			$replacement = '<input type="hidden" name="' . $token . '" value="1" />';
+			$token       = Session::getFormToken();
+			$search      = '#<input type="hidden" name="[0-9a-f]{32}" value="1">#';
+			$replacement = '<input type="hidden" name="' . $token . '" value="1">';
 
 			$data['body'] = preg_replace($search, $replacement, $data['body']);
 			$body         = $data['body'];
@@ -583,18 +594,18 @@ class Cache
 	 * @param   string  $data     Cached data
 	 * @param   array   $options  Array of options
 	 *
-	 * @return  string  Data to be cached
+	 * @return  array  Data to be cached
 	 *
 	 * @since   1.7.0
 	 */
-	public static function setWorkarounds($data, $options = array())
+	public static function setWorkarounds($data, $options = [])
 	{
-		$loptions = array(
+		$loptions = [
 			'nopathway'  => 0,
 			'nohead'     => 0,
 			'nomodules'  => 0,
 			'modulemode' => 0,
-		);
+		];
 
 		if (isset($options['nopathway']))
 		{
@@ -616,23 +627,23 @@ class Cache
 			$loptions['modulemode'] = $options['modulemode'];
 		}
 
-		$app      = \JFactory::getApplication();
-		$document = \JFactory::getDocument();
+		$app      = Factory::getApplication();
+		$document = Factory::getDocument();
 
 		if ($loptions['nomodules'] != 1)
 		{
 			// Get the modules buffer before component execution.
 			$buffer1 = $document->getBuffer();
 
-			if (!is_array($buffer1))
+			if (!\is_array($buffer1))
 			{
-				$buffer1 = array();
+				$buffer1 = [];
 			}
 
 			// Make sure the module buffer is an array.
-			if (!isset($buffer1['module']) || !is_array($buffer1['module']))
+			if (!isset($buffer1['module']) || !\is_array($buffer1['module']))
 			{
-				$buffer1['module'] = array();
+				$buffer1['module'] = [];
 			}
 		}
 
@@ -644,71 +655,38 @@ class Cache
 		{
 			if ($loptions['modulemode'] == 1)
 			{
-				$headnow = $document->getHeadData();
-				$unset   = array('title', 'description', 'link', 'links', 'metaTags');
+				$headNow = $document->getHeadData();
+				$unset   = ['title', 'description', 'link', 'links', 'metaTags'];
 
-				foreach ($unset as $un)
+				foreach ($unset as $key)
 				{
-					unset($headnow[$un]);
-					unset($options['headerbefore'][$un]);
+					unset($headNow[$key]);
 				}
 
-				$cached['head'] = array();
-
-				// Only store what this module has added
-				foreach ($headnow as $now => $value)
+				// Sanitize empty data
+				foreach (\array_keys($headNow) as $key)
 				{
-					if (isset($options['headerbefore'][$now]))
+					if (!isset($headNow[$key]) || $headNow[$key] === [])
 					{
-						// We have to serialize the content of the arrays because the may contain other arrays which is a notice in PHP 5.4 and newer
-						$nowvalue    = array_map('serialize', $headnow[$now]);
-						$beforevalue = array_map('serialize', $options['headerbefore'][$now]);
-
-						$newvalue = array_diff_assoc($nowvalue, $beforevalue);
-						$newvalue = array_map('unserialize', $newvalue);
-
-						// Special treatment for script and style declarations.
-						if (($now == 'script' || $now == 'style') && is_array($newvalue) && is_array($options['headerbefore'][$now]))
-						{
-							foreach ($newvalue as $type => $currentScriptStr)
-							{
-								if (isset($options['headerbefore'][$now][strtolower($type)]))
-								{
-									$oldScriptStr = $options['headerbefore'][$now][strtolower($type)];
-
-									if ($oldScriptStr != $currentScriptStr)
-									{
-										// Save only the appended declaration.
-										$newvalue[strtolower($type)] = StringHelper::substr($currentScriptStr, StringHelper::strlen($oldScriptStr));
-									}
-								}
-							}
-						}
-					}
-					else
-					{
-						$newvalue = $headnow[$now];
-					}
-
-					if (!empty($newvalue))
-					{
-						$cached['head'][$now] = $newvalue;
+						unset($headNow[$key]);
 					}
 				}
+
+				$cached['head'] = $headNow;
 			}
 			else
 			{
 				$cached['head'] = $document->getHeadData();
+
+				// Document MIME encoding
+				$cached['mime_encoding'] = $document->getMimeEncoding();
 			}
 		}
-
-		// Document MIME encoding
-		$cached['mime_encoding'] = $document->getMimeEncoding();
 
 		// Pathway data
 		if ($app->isClient('site') && $loptions['nopathway'] != 1)
 		{
-			$cached['pathway'] = is_array($data) && isset($data['pathway']) ? $data['pathway'] : $app->getPathway()->getPathway();
+			$cached['pathway'] = $data['pathway'] ?? $app->getPathway()->getPathway();
 		}
 
 		if ($loptions['nomodules'] != 1)
@@ -717,15 +695,15 @@ class Cache
 			// Get the module buffer after component execution.
 			$buffer2 = $document->getBuffer();
 
-			if (!is_array($buffer2))
+			if (!\is_array($buffer2))
 			{
-				$buffer2 = array();
+				$buffer2 = [];
 			}
 
 			// Make sure the module buffer is an array.
-			if (!isset($buffer2['module']) || !is_array($buffer2['module']))
+			if (!isset($buffer2['module']) || !\is_array($buffer2['module']))
 			{
-				$buffer2['module'] = array();
+				$buffer2['module'] = [];
 			}
 
 			// Compare the second module buffer against the first buffer.
@@ -750,7 +728,7 @@ class Cache
 	 */
 	public static function makeId()
 	{
-		$app = \JFactory::getApplication();
+		$app = Factory::getApplication();
 
 		$registeredurlparams = new \stdClass;
 
@@ -799,7 +777,7 @@ class Cache
 	public static function getPlatformPrefix()
 	{
 		// No prefix when Global Config is set to no platform specific prefix
-		if (!\JFactory::getConfig()->get('cache_platformprefix', '0'))
+		if (!Factory::getApplication()->get('cache_platformprefix', false))
 		{
 			return '';
 		}
@@ -832,10 +810,9 @@ class Cache
 			$paths = array();
 		}
 
-		if (!empty($path) && !in_array($path, $paths))
+		if (!empty($path) && !\in_array($path, $paths))
 		{
-			\JLoader::import('joomla.filesystem.path');
-			array_unshift($paths, \JPath::clean($path));
+			array_unshift($paths, Path::clean($path));
 		}
 
 		return $paths;
