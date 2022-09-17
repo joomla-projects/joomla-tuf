@@ -164,7 +164,7 @@ class TufValidation
 	private function rollBack() {
 		$db = Factory::getContainer()->get(DatabaseDriver::class);
 		$query = $db->getQuery(true)
-			->delete('#__tuf_metadata')
+			->delete($db->quoteName('#__tuf_metadata'))
 			->columns(['snapshot_json', 'targets_json', 'timestamp_json']);
 		$db->setQuery($query);
 	}
