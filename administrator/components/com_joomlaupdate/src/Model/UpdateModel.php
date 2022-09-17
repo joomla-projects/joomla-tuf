@@ -60,43 +60,16 @@ class UpdateModel extends BaseDatabaseModel
 		// Determine the intended update URL.
 		$params = ComponentHelper::getParams('com_joomlaupdate');
 
-		switch ($params->get('updatesource', 'nochange'))
-		{
-			// "Minor & Patch Release for Current version AND Next Major Release".
-			case 'next':
-				$updateURL = 'https://update.joomla.org/core/sts/list_sts.xml';
-				break;
+		$updateURL = 'https://raw.githubusercontent.com/joomla/updates/test/repository/targets/';
+		if ($params->get('updatesource', 'nochange') == 'custom') {
+			$paramsURL = $params->get('customurl', '');
+			if (trim($paramsURL) != '') {
+				$updateURL = trim($paramsURL);
+			} else {
+				Factory::getApplication()->enqueueMessage(Text::_('COM_JOOMLAUPDATE_CONFIG_UPDATESOURCE_CUSTOM_ERROR'), 'error');
 
-			// "Testing"
-			case 'testing':
-				$updateURL = 'https://update.joomla.org/core/test/list_test.xml';
-				break;
-
-			// "Custom"
-			// @todo: check if the customurl is valid and not just "not empty".
-			case 'custom':
-				if (trim($params->get('customurl', '')) != '')
-				{
-					$updateURL = trim($params->get('customurl', ''));
-				}
-				else
-				{
-					Factory::getApplication()->enqueueMessage(Text::_('COM_JOOMLAUPDATE_CONFIG_UPDATESOURCE_CUSTOM_ERROR'), 'error');
-
-					return;
-				}
-				break;
-
-			/**
-			 * "Minor & Patch Release for Current version (recommended and default)".
-			 * The commented "case" below are for documenting where 'default' and legacy options falls
-			 * case 'default':
-			 * case 'lts':
-			 * case 'sts': (It's shown as "Default" because that option does not exist any more)
-			 * case 'nochange':
-			 */
-			default:
-				$updateURL = 'https://update.joomla.org/core/list.xml';
+				return;
+			}
 		}
 
 		$id = ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id;

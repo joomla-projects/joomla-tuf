@@ -82,9 +82,9 @@ class TufValidation
 	{
 		$resolver->setDefaults(
 			[
-				'url_prefix' => 'https://raw.githubusercontent.com',
-				'metadata_path' => '/joomla/updates/test/repository/',
-				'targets_path' => '/targets/',
+				'url_prefix' => '',
+				'metadata_path' => '',
+				'targets_path' => '',
 				'mirrors' => [],
 			]
 		)
@@ -121,8 +121,6 @@ class TufValidation
 
 			return $storage['targets.json'];
 		} catch (FreezeAttackException|MetadataException|SignatureThresholdException|RollbackAttackException $e) {
-			pdd($updater, $storage, $e);
-			pdd(file_get_contents('https://raw.githubusercontent.com/joomla/updates/test/repository/4.targets.json'));
 			// When the validation fails, for example when one file is written but the others don't, we roll back everything
 			// and cancel the update
 			$query = $db->getQuery(true)

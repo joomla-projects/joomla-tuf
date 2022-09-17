@@ -57,13 +57,15 @@ class TufAdapter extends UpdateAdapter
 		$updates = [];
 		$targets = $this->getUpdateTargets($options);
 
-		foreach ($targets as $target) {
-			$updateTable = Table::getInstance('update');
-			$updateTable->set('update_site_id', $options['update_site_id']);
+		if ($targets) {
+			foreach ($targets as $target) {
+				$updateTable = Table::getInstance('update');
+				$updateTable->set('update_site_id', $options['update_site_id']);
 
-			$updateTable->bind($target);
+				$updateTable->bind($target);
 
-			$updates[] = $updateTable;
+				$updates[] = $updateTable;
+			}
 		}
 
 		return array('update_sites' => array(), 'updates' => $updates);
@@ -105,12 +107,36 @@ class TufAdapter extends UpdateAdapter
 			// Do nothing
 		}
 
-		$params = [
-			'url_prefix' => 'https://raw.githubusercontent.com',
-			'metadata_path' => '/joomla/updates/test/repository/',
-			'targets_path' => '/targets/',
-			'mirrors' => []
-		];
+		// Get params for TufValidation
+		$query = $db->getQuery(true)
+			->select($db->quoteName('location'))
+			->from($db->quoteName('#__update_sites'))
+			->where($db->quoteName('update_site_id') . ' = :id')
+			->bind(':id', $options['update_site_id'], ParameterType::INTEGER);
+		$db->setQuery($query);
+
+		try {
+			$params_string = $db->loadResult();
+			$params_mirrors = explode('|', $params_string);
+			$params = [
+				'url_prefix' => '',
+				'metadata_path' => '',
+				'targets_path' => '',
+				'mirrors' => []
+			];
+			for ($i = 0; $i < count($params_mirrors); $i++) {
+				if ($i == 0) {
+					$params = $this->buildMirrorArray($params_mirrors[$i]);
+					$params['mirrors'] = [];
+				} else {
+					$mirror = $this->buildMirrorArray($params_mirrors[$i]);
+					$mirror['confined_target_dirs'] = [];
+					array_push($params['mirrors'], $mirror);
+				}
+			}
+		} catch (\RuntimeException $e) {
+			// Do nothing
+		}
 
 		$TufValidation = new TufValidation($extension_id, $params);
 		$metaData = $TufValidation->getValidUpdate();
@@ -205,5 +231,26 @@ class TufAdapter extends UpdateAdapter
 			->setAllowedTypes('supported_databases', 'object')
 			->setAllowedTypes('stability', 'string')
 			->setRequired(['version']);
+	}
+
+	/**
+	 * @param string $mirror the mirror string
+	 * @return array the mirror array
+	 */
+	private function buildMirrorArray(string $mirror): array
+	{
+		$url_parts = explode('/', $mirror);
+		$url_prefix = $url_parts[0] . '' . $url_parts[1] . '//' . $url_parts[2];
+		$metadata_path = '';
+		for ($i = 3; $i < count($url_parts) - 2; $i++) {
+			$metadata_path = $metadata_path . '/' . $url_parts[$i];
+		}
+		$metadata_path = $metadata_path . '/';
+		$targets_path = '/' . $url_parts[count($url_parts) - 2] . '/';
+		return [
+			'url_prefix' => $url_prefix,
+			'metadata_path' => $metadata_path,
+			'targets_path' => $targets_path
+		];
 	}
 }
