@@ -30,8 +30,8 @@ class DatabaseStorage implements \ArrayAccess
 	/**
 	 * Initialize the DatabaseStorage class
 	 *
-	 * @param   DatabaseDriver  $db           A database connector object
-	 * @param   integer         $extensionId  The extension ID where the storage should be implemented for
+	 * @param DatabaseDriver $db A database connector object
+	 * @param integer $extensionId The extension ID where the storage should be implemented for
 	 */
 	public function __construct(DatabaseDriver $db, int $extensionId)
 	{
@@ -43,7 +43,7 @@ class DatabaseStorage implements \ArrayAccess
 	/**
 	 * Check if an offset/table column exists
 	 *
-	 * @param   mixed  $offset  The offset/database column to check for
+	 * @param mixed $offset The offset/database column to check for
 	 *
 	 * @return boolean
 	 */
@@ -57,7 +57,7 @@ class DatabaseStorage implements \ArrayAccess
 	/**
 	 * Check if an offset/table column exists
 	 *
-	 * @param   mixed  $offset  The offset/database column to check for
+	 * @param mixed $offset The offset/database column to check for
 	 *
 	 * @return boolean
 	 */
@@ -71,14 +71,13 @@ class DatabaseStorage implements \ArrayAccess
 	/**
 	 * Get the value of a table column
 	 *
-	 * @param   mixed  $offset  The column name to get the value for
+	 * @param mixed $offset The column name to get the value for
 	 *
 	 * @return  mixed
 	 */
 	public function offsetGet($offset)
 	{
-		if (!$this->offsetExists($offset))
-		{
+		if (!$this->offsetExists($offset)) {
 			throw new RoleNotFoundException;
 		}
 
@@ -97,8 +96,7 @@ class DatabaseStorage implements \ArrayAccess
 	 */
 	public function offsetSet($offset, $value)
 	{
-		if (!$this->tableColumnExists($offset))
-		{
+		if (!$this->tableColumnExists($offset)) {
 			throw new RoleNotFoundException;
 		}
 
@@ -112,14 +110,13 @@ class DatabaseStorage implements \ArrayAccess
 	/**
 	 * Reset the value to a
 	 *
-	 * @param   mixed  $offset  The table column to reset the value to null
+	 * @param mixed $offset The table column to reset the value to null
 	 *
 	 * @return void
 	 */
 	public function offsetUnset($offset): void
 	{
-		if (!$this->offsetExists($offset))
-		{
+		if (!$this->offsetExists($offset)) {
 			throw new RoleNotFoundException;
 		}
 
@@ -133,7 +130,7 @@ class DatabaseStorage implements \ArrayAccess
 	/**
 	 * Convert file names to table columns
 	 *
-	 * @param   string  $name  The original file name
+	 * @param string $name The original file name
 	 *
 	 * @return string
 	 */

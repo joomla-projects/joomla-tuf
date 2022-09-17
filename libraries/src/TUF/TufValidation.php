@@ -47,8 +47,8 @@ class TufValidation
 	/**
 	 * Validating updates with TUF
 	 *
-	 * @param   integer  $extensionId  The ID of the extension to be checked
-	 * @param   mixed    $params       The parameters containing the Base-URI, the Metadata- and Targets-Path and mirrors for the update
+	 * @param integer $extensionId The ID of the extension to be checked
+	 * @param mixed $params The parameters containing the Base-URI, the Metadata- and Targets-Path and mirrors for the update
 	 */
 	public function __construct(int $extensionId, $params)
 	{
@@ -56,22 +56,15 @@ class TufValidation
 
 		$resolver = new OptionsResolver;
 
-		try
-		{
+		try {
 			$this->configureTufOptions($resolver);
-		}
-		catch (\Exception $e)
-		{
+		} catch (\Exception $e) {
 		}
 
-		try
-		{
+		try {
 			$params = $resolver->resolve($params);
-		}
-		catch (\Exception $e)
-		{
-			if ($e instanceof UndefinedOptionsException || $e instanceof InvalidOptionsException)
-			{
+		} catch (\Exception $e) {
+			if ($e instanceof UndefinedOptionsException || $e instanceof InvalidOptionsException) {
 				throw $e;
 			}
 		}
@@ -82,7 +75,7 @@ class TufValidation
 	/**
 	 * Configures default values or pass arguments to params
 	 *
-	 * @param   OptionsResolver $resolver  The OptionsResolver for the params
+	 * @param OptionsResolver $resolver The OptionsResolver for the params
 	 * @return void
 	 */
 	protected function configureTufOptions(OptionsResolver $resolver)
@@ -121,16 +114,15 @@ class TufValidation
 			$storage
 		);
 
-		try
-		{
+		try {
 			// Refresh the data if needed, it will be written inside the DB, then we fetch it afterwards and return it to
 			// the caller
 			$updater->refresh();
 
 			return $storage['targets.json'];
-		}
-		catch (FreezeAttackException | MetadataException | SignatureThresholdException | RollbackAttackException $e)
-		{
+		} catch (FreezeAttackException|MetadataException|SignatureThresholdException|RollbackAttackException $e) {
+			pdd($updater, $storage, $e);
+			pdd(file_get_contents('https://raw.githubusercontent.com/joomla/updates/test/repository/4.targets.json'));
 			// When the validation fails, for example when one file is written but the others don't, we roll back everything
 			// and cancel the update
 			$query = $db->getQuery(true)
