@@ -25,85 +25,120 @@ class DatabaseStorage implements \ArrayAccess
 	 *
 	 * @var Table
 	 */
-	protected Table $table;
+	protected $table;
 
 	/**
 	 * Initialize the DatabaseStorage class
 	 *
-	 * @param   DatabaseDriver $db
-	 * @param   integer $extensionId
+	 * @param   DatabaseDriver  $db           A database connector object
+	 * @param   integer         $extensionId  The extension ID where the storage should be implemented for
 	 */
 	public function __construct(DatabaseDriver $db, int $extensionId)
 	{
 		$this->table = new Tuf($db);
 
-        $this->table->load($extensionId);
+		$this->table->load(['extension_id' => $extensionId]);
 	}
 
 	/**
-	 * {@inheritdoc}
+	 * Check if an offset/table column exists
+	 *
+	 * @param   mixed  $offset  The offset/database column to check for
+	 *
+	 * @return boolean
 	 */
-	public function offsetExists(mixed $offset): bool
+	public function offsetExists($offset): bool
 	{
-        $column = $this->getCleanColumn($offset);
+		$column = $this->getCleanColumn($offset);
 
-        return substr($offset, -5) === '_json' && $this->table->hasField($column) && strlen($this->table->$column);
+		return substr($column, -5) === '_json' && $this->table->hasField($column) && !is_null($this->table->$column);
 	}
 
 	/**
-	 * {@inheritdoc}
+	 * Check if an offset/table column exists
+	 *
+	 * @param   mixed  $offset  The offset/database column to check for
+	 *
+	 * @return boolean
 	 */
-	public function offsetGet($offset): mixed
+	public function tableColumnExists($offset): bool
 	{
-        if (!$this->offsetExists($offset))
-        {
-            throw new RoleNotFoundException;
-        }
+		$column = $this->getCleanColumn($offset);
 
-        $column = $this->getCleanColumn($offset);
-
-        return $this->table->$column;
+		return substr($column, -5) === '_json' && $this->table->hasField($column);
 	}
 
 	/**
-	 * {@inheritdoc}
+	 * Get the value of a table column
+	 *
+	 * @param   mixed  $offset  The column name to get the value for
+	 *
+	 * @return  mixed
 	 */
-	public function offsetSet($offset, $value): void
+	public function offsetGet($offset)
 	{
-        if (!$this->offsetExists($offset))
-        {
-            throw new RoleNotFoundException;
-        }
+		if (!$this->offsetExists($offset))
+		{
+			throw new RoleNotFoundException;
+		}
 
-		$this->table->$offset = $value;
+		$column = $this->getCleanColumn($offset);
 
-        $this->table->store();
+		return $this->table->$column;
 	}
 
 	/**
-	 * {@inheritdoc}
+	 * Set a value in a column
+	 *
+	 * @param   [type] $offset  The table column to set the value
+	 * @param   [type] $value   The value to set
+	 *
+	 * @return void
+	 */
+	public function offsetSet($offset, $value)
+	{
+		if (!$this->tableColumnExists($offset))
+		{
+			throw new RoleNotFoundException;
+		}
+
+		$column = $this->getCleanColumn($offset);
+
+		$this->table->$column = $value;
+
+		$this->table->store();
+	}
+
+	/**
+	 * Reset the value to a
+	 *
+	 * @param   mixed  $offset  The table column to reset the value to null
+	 *
+	 * @return void
 	 */
 	public function offsetUnset($offset): void
 	{
-        if (!$this->offsetExists($offset))
-        {
-            throw new RoleNotFoundException;
-        }
+		if (!$this->offsetExists($offset))
+		{
+			throw new RoleNotFoundException;
+		}
 
-        $this->table->$offset = '';
+		$column = $this->getCleanColumn($offset);
 
-        $this->table->store();
+		$this->table->$column = null;
+
+		$this->table->store(true);
 	}
 
-    /**
-     * Convert file names to table columns
-     *
-     * @param string $name
-     *
-     * @return string
-     */
-    protected function getCleanColumn($name): string
-    {
-        return str_replace('.', '_', $name);
-    }
+	/**
+	 * Convert file names to table columns
+	 *
+	 * @param   string  $name  The original file name
+	 *
+	 * @return string
+	 */
+	protected function getCleanColumn($name): string
+	{
+		return str_replace('.', '_', $name);
+	}
 }
