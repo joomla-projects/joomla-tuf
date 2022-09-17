@@ -132,25 +132,25 @@ class TufValidation
 		}
 		catch (MetadataException $e)
 		{
-			$this->rollBack();
+			$this->rollBackTufMetadata();
 			Factory::getApplication()->enqueueMessage(Text::_('JLIB_INSTALLER_TUF_INVALID_METADATA'), 'error');
 			return null;
 		}
 		catch (FreezeAttackException $e)
 		{
-			$this->rollBack();
+			$this->rollBackTufMetadata();
 			Factory::getApplication()->enqueueMessage(Text::_('JLIB_INSTALLER_TUF_FREEZE_ATTACK'), 'error');
 			return null;
 		}
 		catch (RollbackAttackException $e)
 		{
-			$this->rollBack();
+			$this->rollBackTufMetadata();
 			Factory::getApplication()->enqueueMessage(Text::_('JLIB_INSTALLER_TUF_ROLLBACK_ATTACK'), 'error');
 			return null;
 		}
 		catch (SignatureThresholdException $e)
 		{
-			$this->rollBack();
+			$this->rollBackTufMetadata();
 			Factory::getApplication()->enqueueMessage(Text::_('JLIB_INSTALLER_TUF_SIGNATURE_THRESHOLD'), 'error');
 			return null;
 		}
@@ -161,7 +161,7 @@ class TufValidation
 	 *
 	 * @return void
 	 */
-	private function rollBack() {
+	private function rollBackTufMetadata() {
 		$db = Factory::getContainer()->get(DatabaseDriver::class);
 		$query = $db->getQuery(true)
 			->delete($db->quoteName('#__tuf_metadata'))
