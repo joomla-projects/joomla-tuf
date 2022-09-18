@@ -30,29 +30,29 @@ use Joomla\Registry\Registry;
  */
 class XmlUpdate extends AbstractUpdate
 {
-	/**
-	 * Resource handle for the XML Parser
-	 *
-	 * @var    resource
-	 * @since  3.0.0
-	 */
-	protected $xmlParser;
+    /**
+     * Resource handle for the XML Parser
+     *
+     * @var    resource
+     * @since  3.0.0
+     */
+    protected $xmlParser;
 
-	/**
-	 * Element call stack
-	 *
-	 * @var    array
-	 * @since  3.0.0
-	 */
-	protected $stack = array('base');
+    /**
+     * Element call stack
+     *
+     * @var    array
+     * @since  3.0.0
+     */
+    protected $stack = array('base');
 
-	/**
-	 * Unused state array
-	 *
-	 * @var    array
-	 * @since  3.0.0
-	 */
-	protected $stateStore = array();
+    /**
+     * Unused state array
+     *
+     * @var    array
+     * @since  3.0.0
+     */
+    protected $stateStore = array();
 
     /**
      * Object containing the current update data
@@ -105,317 +105,286 @@ class XmlUpdate extends AbstractUpdate
         return implode('->', $this->stack);
     }
 
-	/**
-	 * Get the last position in stack count
-	 *
-	 * @return  string
-	 *
-	 * @since   1.7.0
-	 */
-	protected function _getLastTag()
-	{
-		return $this->stack[\count($this->stack) - 1];
-	}
+    /**
+     * Get the last position in stack count
+     *
+     * @return  string
+     *
+     * @since   1.7.0
+     */
+    protected function _getLastTag()
+    {
+        return $this->stack[\count($this->stack) - 1];
+    }
 
-	/**
-	 * XML Start Element callback
-	 *
-	 * @param   object  $parser  Parser object
-	 * @param   string  $name    Name of the tag found
-	 * @param   array   $attrs   Attributes of the tag
-	 *
-	 * @return  void
-	 *
-	 * @note    This is public because it is called externally
-	 * @since   1.7.0
-	 */
-	public function _startElement($parser, $name, $attrs = array())
-	{
-		$this->stack[] = $name;
-		$tag           = $this->_getStackLocation();
+    /**
+     * XML Start Element callback
+     *
+     * @param object $parser Parser object
+     * @param string $name Name of the tag found
+     * @param array $attrs Attributes of the tag
+     *
+     * @return  void
+     *
+     * @note    This is public because it is called externally
+     * @since   1.7.0
+     */
+    public function _startElement($parser, $name, $attrs = array())
+    {
+        $this->stack[] = $name;
+        $tag = $this->_getStackLocation();
 
-		// Reset the data
-		if (isset($this->$tag))
-		{
-			$this->$tag->_data = '';
-		}
+        // Reset the data
+        if (isset($this->$tag)) {
+            $this->$tag->_data = '';
+        }
 
-		switch ($name)
-		{
-			// This is a new update; create a current update
-			case 'UPDATE':
-				$this->currentUpdate = new \stdClass;
-				break;
+        switch ($name) {
+            // This is a new update; create a current update
+            case 'UPDATE':
+                $this->currentUpdate = new \stdClass;
+                break;
 
-			// Handle the array of download sources
-			case 'DOWNLOADSOURCE':
-				$source = new DownloadSource;
+            // Handle the array of download sources
+            case 'DOWNLOADSOURCE':
+                $source = new DownloadSource;
 
-				foreach ($attrs as $key => $data)
-				{
-					$key = strtolower($key);
-					$source->$key = $data;
-				}
+                foreach ($attrs as $key => $data) {
+                    $key = strtolower($key);
+                    $source->$key = $data;
+                }
 
-				$this->downloadSources[] = $source;
+                $this->downloadSources[] = $source;
 
-				break;
+                break;
 
-			// Don't do anything
-			case 'UPDATES':
-				break;
+            // Don't do anything
+            case 'UPDATES':
+                break;
 
-			// For everything else there's...the default!
-			default:
-				$name = strtolower($name);
+            // For everything else there's...the default!
+            default:
+                $name = strtolower($name);
 
-				if (!isset($this->currentUpdate->$name))
-				{
-					$this->currentUpdate->$name = new \stdClass;
-				}
+                if (!isset($this->currentUpdate->$name)) {
+                    $this->currentUpdate->$name = new \stdClass;
+                }
 
-				$this->currentUpdate->$name->_data = '';
+                $this->currentUpdate->$name->_data = '';
 
-				foreach ($attrs as $key => $data)
-				{
-					$key = strtolower($key);
-					$this->currentUpdate->$name->$key = $data;
-				}
-				break;
-		}
-	}
+                foreach ($attrs as $key => $data) {
+                    $key = strtolower($key);
+                    $this->currentUpdate->$name->$key = $data;
+                }
+                break;
+        }
+    }
 
-	/**
-	 * Callback for closing the element
-	 *
-	 * @param   object  $parser  Parser object
-	 * @param   string  $name    Name of element that was closed
-	 *
-	 * @return  void
-	 *
-	 * @note    This is public because it is called externally
-	 * @since   1.7.0
-	 */
-	public function _endElement($parser, $name)
-	{
-		array_pop($this->stack);
+    /**
+     * Callback for closing the element
+     *
+     * @param object $parser Parser object
+     * @param string $name Name of element that was closed
+     *
+     * @return  void
+     *
+     * @note    This is public because it is called externally
+     * @since   1.7.0
+     */
+    public function _endElement($parser, $name)
+    {
+        array_pop($this->stack);
 
-		switch ($name)
-		{
-			// Closing update, find the latest version and check
-			case 'UPDATE':
-				$product = strtolower(InputFilter::getInstance()->clean(Version::PRODUCT, 'cmd'));
+        switch ($name) {
+            // Closing update, find the latest version and check
+            case 'UPDATE':
+                $product = strtolower(InputFilter::getInstance()->clean(Version::PRODUCT, 'cmd'));
 
-				// Check that the product matches and that the version matches (optionally a regexp)
-				if (isset($this->currentUpdate->targetplatform->name)
-					&& $product == $this->currentUpdate->targetplatform->name
-					&& preg_match('/^' . $this->currentUpdate->targetplatform->version . '/', $this->get('jversion.full', JVERSION)))
-				{
-					$phpMatch = false;
+                // Check that the product matches and that the version matches (optionally a regexp)
+                if (isset($this->currentUpdate->targetplatform->name)
+                    && $product == $this->currentUpdate->targetplatform->name
+                    && preg_match('/^' . $this->currentUpdate->targetplatform->version . '/', $this->get('jversion.full', JVERSION))) {
+                    $phpMatch = false;
 
-					// Check if PHP version supported via <php_minimum> tag, assume true if tag isn't present
-					if (!isset($this->currentUpdate->php_minimum) || version_compare(PHP_VERSION, $this->currentUpdate->php_minimum->_data, '>='))
-					{
-						$phpMatch = true;
-					}
+                    // Check if PHP version supported via <php_minimum> tag, assume true if tag isn't present
+                    if (!isset($this->currentUpdate->php_minimum) || version_compare(PHP_VERSION, $this->currentUpdate->php_minimum->_data, '>=')) {
+                        $phpMatch = true;
+                    }
 
-					$dbMatch = false;
+                    $dbMatch = false;
 
-					// Check if DB & version is supported via <supported_databases> tag, assume supported if tag isn't present
-					if (isset($this->currentUpdate->supported_databases))
-					{
-						$db           = Factory::getDbo();
-						$dbType       = strtolower($db->getServerType());
-						$dbVersion    = $db->getVersion();
-						$supportedDbs = $this->currentUpdate->supported_databases;
+                    // Check if DB & version is supported via <supported_databases> tag, assume supported if tag isn't present
+                    if (isset($this->currentUpdate->supported_databases)) {
+                        $db = Factory::getDbo();
+                        $dbType = strtolower($db->getServerType());
+                        $dbVersion = $db->getVersion();
+                        $supportedDbs = $this->currentUpdate->supported_databases;
 
-						// MySQL and MariaDB use the same database driver but not the same version numbers
-						if ($dbType === 'mysql')
-						{
-							// Check whether we have a MariaDB version string and extract the proper version from it
-							if (stripos($dbVersion, 'mariadb') !== false)
-							{
-								// MariaDB: Strip off any leading '5.5.5-', if present
-								$dbVersion = preg_replace('/^5\.5\.5-/', '', $dbVersion);
-								$dbType    = 'mariadb';
-							}
-						}
+                        // MySQL and MariaDB use the same database driver but not the same version numbers
+                        if ($dbType === 'mysql') {
+                            // Check whether we have a MariaDB version string and extract the proper version from it
+                            if (stripos($dbVersion, 'mariadb') !== false) {
+                                // MariaDB: Strip off any leading '5.5.5-', if present
+                                $dbVersion = preg_replace('/^5\.5\.5-/', '', $dbVersion);
+                                $dbType = 'mariadb';
+                            }
+                        }
 
-						// Do we have an entry for the database?
-						if (isset($supportedDbs->$dbType))
-						{
-							$minimumVersion = $supportedDbs->$dbType;
-							$dbMatch        = version_compare($dbVersion, $minimumVersion, '>=');
-						}
-					}
-					else
-					{
-						// Set to true if the <supported_databases> tag is not set
-						$dbMatch = true;
-					}
+                        // Do we have an entry for the database?
+                        if (isset($supportedDbs->$dbType)) {
+                            $minimumVersion = $supportedDbs->$dbType;
+                            $dbMatch = version_compare($dbVersion, $minimumVersion, '>=');
+                        }
+                    } else {
+                        // Set to true if the <supported_databases> tag is not set
+                        $dbMatch = true;
+                    }
 
-					// Check minimum stability
-					$stabilityMatch = true;
+                    // Check minimum stability
+                    $stabilityMatch = true;
 
-					if (isset($this->currentUpdate->stability) && ($this->currentUpdate->stability < $this->minimum_stability))
-					{
-						$stabilityMatch = false;
-					}
+                    if (isset($this->currentUpdate->stability) && ($this->currentUpdate->stability < $this->minimum_stability)) {
+                        $stabilityMatch = false;
+                    }
 
-					if ($phpMatch && $stabilityMatch && $dbMatch)
-					{
-						if (!empty($this->currentUpdate->downloadurl) && !empty($this->currentUpdate->downloadurl->_data))
-						{
-							$this->compatibleVersions[] = $this->currentUpdate->version->_data;
-						}
+                    if ($phpMatch && $stabilityMatch && $dbMatch) {
+                        if (!empty($this->currentUpdate->downloadurl) && !empty($this->currentUpdate->downloadurl->_data)) {
+                            $this->compatibleVersions[] = $this->currentUpdate->version->_data;
+                        }
 
-						if (!isset($this->latest)
-							|| version_compare($this->currentUpdate->version->_data, $this->latest->version->_data, '>'))
-						{
-							$this->latest = $this->currentUpdate;
-						}
-					}
-				}
-				break;
-			case 'UPDATES':
-				// If the latest item is set then we transfer it to where we want to
-				if (isset($this->latest))
-				{
-					foreach (get_object_vars($this->latest) as $key => $val)
-					{
-						$this->$key = $val;
-					}
+                        if (!isset($this->latest)
+                            || version_compare($this->currentUpdate->version->_data, $this->latest->version->_data, '>')) {
+                            $this->latest = $this->currentUpdate;
+                        }
+                    }
+                }
+                break;
+            case 'UPDATES':
+                // If the latest item is set then we transfer it to where we want to
+                if (isset($this->latest)) {
+                    foreach (get_object_vars($this->latest) as $key => $val) {
+                        $this->$key = $val;
+                    }
 
-					unset($this->latest);
-					unset($this->currentUpdate);
-				}
-				elseif (isset($this->currentUpdate))
-				{
-					// The update might be for an older version of j!
-					unset($this->currentUpdate);
-				}
-				break;
-		}
-	}
+                    unset($this->latest);
+                    unset($this->currentUpdate);
+                } elseif (isset($this->currentUpdate)) {
+                    // The update might be for an older version of j!
+                    unset($this->currentUpdate);
+                }
+                break;
+        }
+    }
 
-	/**
-	 * Character Parser Function
-	 *
-	 * @param   object  $parser  Parser object.
-	 * @param   object  $data    The data.
-	 *
-	 * @return  void
-	 *
-	 * @note    This is public because its called externally.
-	 * @since   1.7.0
-	 */
-	public function _characterData($parser, $data)
-	{
-		$tag = $this->_getLastTag();
+    /**
+     * Character Parser Function
+     *
+     * @param object $parser Parser object.
+     * @param object $data The data.
+     *
+     * @return  void
+     *
+     * @note    This is public because its called externally.
+     * @since   1.7.0
+     */
+    public function _characterData($parser, $data)
+    {
+        $tag = $this->_getLastTag();
 
-		// Throw the data for this item together
-		$tag = strtolower($tag);
+        // Throw the data for this item together
+        $tag = strtolower($tag);
 
-		if ($tag === 'tag')
-		{
-			$this->currentUpdate->stability = $this->stabilityTagToInteger((string) $data);
+        if ($tag === 'tag') {
+            $this->currentUpdate->stability = $this->stabilityTagToInteger((string)$data);
 
-			return;
-		}
+            return;
+        }
 
-		if ($tag === 'downloadsource')
-		{
-			// Grab the last source so we can append the URL
-			$source = end($this->downloadSources);
-			$source->url = $data;
+        if ($tag === 'downloadsource') {
+            // Grab the last source so we can append the URL
+            $source = end($this->downloadSources);
+            $source->url = $data;
 
-			return;
-		}
+            return;
+        }
 
-		if (isset($this->currentUpdate->$tag))
-		{
-			$this->currentUpdate->$tag->_data .= $data;
-		}
-	}
+        if (isset($this->currentUpdate->$tag)) {
+            $this->currentUpdate->$tag->_data .= $data;
+        }
+    }
 
-	/**
-	 * Loads an XML file from a URL.
-	 *
-	 * @param   string  $url               The URL.
-	 * @param   int     $minimumStability  The minimum stability required for updating the extension {@see Updater}
-	 *
-	 * @return  boolean  True on success
-	 *
-	 * @since   1.7.0
-	 */
-	public function loadFromXml($url, $minimumStability = Updater::STABILITY_STABLE)
-	{
-		$version    = new Version;
-		$httpOption = new Registry;
-		$httpOption->set('userAgent', $version->getUserAgent('Joomla', true, false));
+    /**
+     * Loads an XML file from a URL.
+     *
+     * @param string $url The URL.
+     * @param int $minimumStability The minimum stability required for updating the extension {@see Updater}
+     *
+     * @return  boolean  True on success
+     *
+     * @since   1.7.0
+     */
+    public function loadFromXml($url, $minimumStability = Updater::STABILITY_STABLE)
+    {
+        $version = new Version;
+        $httpOption = new Registry;
+        $httpOption->set('userAgent', $version->getUserAgent('Joomla', true, false));
 
-		try
-		{
-			$http = HttpFactory::getHttp($httpOption);
-			$response = $http->get($url);
-		}
-		catch (\RuntimeException $e)
-		{
-			$response = null;
-		}
+        try {
+            $http = HttpFactory::getHttp($httpOption);
+            $response = $http->get($url);
+        } catch (\RuntimeException $e) {
+            $response = null;
+        }
 
-		if ($response === null || $response->code !== 200)
-		{
-			// @todo: Add a 'mark bad' setting here somehow
-			Log::add(Text::sprintf('JLIB_UPDATER_ERROR_EXTENSION_OPEN_URL', $url), Log::WARNING, 'jerror');
+        if ($response === null || $response->code !== 200) {
+            // @todo: Add a 'mark bad' setting here somehow
+            Log::add(Text::sprintf('JLIB_UPDATER_ERROR_EXTENSION_OPEN_URL', $url), Log::WARNING, 'jerror');
 
-			return false;
-		}
+            return false;
+        }
 
-		$this->minimum_stability = $minimumStability;
+        $this->minimum_stability = $minimumStability;
 
-		$this->xmlParser = xml_parser_create('');
-		xml_set_object($this->xmlParser, $this);
-		xml_set_element_handler($this->xmlParser, '_startElement', '_endElement');
-		xml_set_character_data_handler($this->xmlParser, '_characterData');
+        $this->xmlParser = xml_parser_create('');
+        xml_set_object($this->xmlParser, $this);
+        xml_set_element_handler($this->xmlParser, '_startElement', '_endElement');
+        xml_set_character_data_handler($this->xmlParser, '_characterData');
 
-		if (!xml_parse($this->xmlParser, $response->body))
-		{
-			Log::add(
-				sprintf(
-					'XML error: %s at line %d', xml_error_string(xml_get_error_code($this->xmlParser)),
-					xml_get_current_line_number($this->xmlParser)
-				),
-				Log::WARNING, 'updater'
-			);
+        if (!xml_parse($this->xmlParser, $response->body)) {
+            Log::add(
+                sprintf(
+                    'XML error: %s at line %d', xml_error_string(xml_get_error_code($this->xmlParser)),
+                    xml_get_current_line_number($this->xmlParser)
+                ),
+                Log::WARNING, 'updater'
+            );
 
-			return false;
-		}
+            return false;
+        }
 
-		xml_parser_free($this->xmlParser);
+        xml_parser_free($this->xmlParser);
 
-		return true;
-	}
+        return true;
+    }
 
-	/**
-	 * Converts a tag to numeric stability representation. If the tag doesn't represent a known stability level (one of
-	 * dev, alpha, beta, rc, stable) it is ignored.
-	 *
-	 * @param   string  $tag  The tag string, e.g. dev, alpha, beta, rc, stable
-	 *
-	 * @return  integer
-	 *
-	 * @since   3.4
-	 */
-	protected function stabilityTagToInteger($tag)
-	{
-		$constant = '\\Joomla\\CMS\\Updater\\Updater::STABILITY_' . strtoupper($tag);
+    /**
+     * Converts a tag to numeric stability representation. If the tag doesn't represent a known stability level (one of
+     * dev, alpha, beta, rc, stable) it is ignored.
+     *
+     * @param string $tag The tag string, e.g. dev, alpha, beta, rc, stable
+     *
+     * @return  integer
+     *
+     * @since   3.4
+     */
+    protected function stabilityTagToInteger($tag)
+    {
+        $constant = '\\Joomla\\CMS\\Updater\\Updater::STABILITY_' . strtoupper($tag);
 
-		if (\defined($constant))
-		{
-			return \constant($constant);
-		}
+        if (\defined($constant)) {
+            return \constant($constant);
+        }
 
-		return Updater::STABILITY_STABLE;
-	}
+        return Updater::STABILITY_STABLE;
+    }
 }

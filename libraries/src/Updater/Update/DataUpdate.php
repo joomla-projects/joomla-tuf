@@ -28,69 +28,69 @@ use Joomla\Registry\Registry;
  */
 class DataUpdate extends AbstractUpdate
 {
-	/**
-	 * Object for holding for data
-	 *
-	 * @var    resource
-	 * @since  3.0.0
-	 */
-	protected $data;
+    /**
+     * Object for holding for data
+     *
+     * @var    resource
+     * @since  3.0.0
+     */
+    protected $data;
 
-	/**
-	 * Loads an XML file from a URL.
-	 *
-	 * @param mixed $updateObject The object of the update containing all information.
-	 * @param int $minimumStability The minimum stability required for updating the extension {@see Updater}
-	 *
-	 * @return  boolean  True on success
-	 *
-	 * @since   1.7.0
-	 */
-	public function loadFromData($updateObject, $minimumStability = Updater::STABILITY_STABLE)
-	{
-		foreach ($updateObject as $key => $data) {
-			$this->$key = $updateObject->$key;
-		}
+    /**
+     * Loads an XML file from a URL.
+     *
+     * @param mixed $updateObject The object of the update containing all information.
+     * @param int $minimumStability The minimum stability required for updating the extension {@see Updater}
+     *
+     * @return  boolean  True on success
+     *
+     * @since   1.7.0
+     */
+    public function loadFromData($updateObject, $minimumStability = Updater::STABILITY_STABLE)
+    {
+        foreach ($updateObject as $key => $data) {
+            $this->$key = $updateObject->$key;
+        }
 
-		$dataJson = json_decode($updateObject->data);
-		$this->targetplatform = $dataJson->targetplatform;
+        $dataJson = json_decode($updateObject->data);
+        $this->targetplatform = $dataJson->targetplatform;
 
-		foreach ($dataJson->downloads as $download) {
-			$source = new DownloadSource;
-			foreach ($download as $key => $data) {
-				$key = strtolower($key);
-				$source->$key = $data;
-			}
-			$this->downloadSources[] = $source;
-		}
+        foreach ($dataJson->downloads as $download) {
+            $source = new DownloadSource;
+            foreach ($download as $key => $data) {
+                $key = strtolower($key);
+                $source->$key = $data;
+            }
+            $this->downloadSources[] = $source;
+        }
 
-		$this->currentUpdate = new \stdClass();
-		$this->downloadurl = new \stdClass();
-		$this->downloadurl->_data = $this->downloadSources[0]->url;
-		$this->downloadurl->format = $this->downloadSources[0]->format;
-		$this->downloadurl->type = $this->downloadSources[0]->type;
+        $this->currentUpdate = new \stdClass();
+        $this->downloadurl = new \stdClass();
+        $this->downloadurl->_data = $this->downloadSources[0]->url;
+        $this->downloadurl->format = $this->downloadSources[0]->format;
+        $this->downloadurl->type = $this->downloadSources[0]->type;
 
-		return true;
-	}
+        return true;
+    }
 
-	/**
-	 * Converts a tag to numeric stability representation. If the tag doesn't represent a known stability level (one of
-	 * dev, alpha, beta, rc, stable) it is ignored.
-	 *
-	 * @param string $tag The tag string, e.g. dev, alpha, beta, rc, stable
-	 *
-	 * @return  integer
-	 *
-	 * @since   3.4
-	 */
-	protected function stabilityTagToInteger($tag)
-	{
-		$constant = '\\Joomla\\CMS\\Updater\\Updater::STABILITY_' . strtoupper($tag);
+    /**
+     * Converts a tag to numeric stability representation. If the tag doesn't represent a known stability level (one of
+     * dev, alpha, beta, rc, stable) it is ignored.
+     *
+     * @param string $tag The tag string, e.g. dev, alpha, beta, rc, stable
+     *
+     * @return  integer
+     *
+     * @since   3.4
+     */
+    protected function stabilityTagToInteger($tag)
+    {
+        $constant = '\\Joomla\\CMS\\Updater\\Updater::STABILITY_' . strtoupper($tag);
 
-		if (\defined($constant)) {
-			return \constant($constant);
-		}
+        if (\defined($constant)) {
+            return \constant($constant);
+        }
 
-		return Updater::STABILITY_STABLE;
-	}
+        return Updater::STABILITY_STABLE;
+    }
 }

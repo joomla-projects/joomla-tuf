@@ -45,8 +45,8 @@ class TufValidation
     /**
      * Validating updates with TUF
      *
-     * @param   integer  $extensionId  The ID of the extension to be checked
-     * @param   mixed    $params       The parameters containing the Base-URI, the Metadata- and Targets-Path and mirrors for the update
+     * @param integer $extensionId The ID of the extension to be checked
+     * @param mixed $params The parameters containing the Base-URI, the Metadata- and Targets-Path and mirrors for the update
      */
     public function __construct(int $extensionId, $params)
     {
@@ -73,7 +73,7 @@ class TufValidation
     /**
      * Configures default values or pass arguments to params
      *
-     * @param   OptionsResolver $resolver  The OptionsResolver for the params
+     * @param OptionsResolver $resolver The OptionsResolver for the params
      * @return void
      */
     protected function configureTufOptions(OptionsResolver $resolver)
