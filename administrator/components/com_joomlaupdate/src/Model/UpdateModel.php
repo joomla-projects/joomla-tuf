@@ -9,8 +9,6 @@
 
 namespace Joomla\Component\Joomlaupdate\Administrator\Model;
 
-\defined('_JEXEC') or die;
-
 use Joomla\CMS\Authentication\Authentication;
 use Joomla\CMS\Component\ComponentHelper;
 use Joomla\CMS\Extension\ExtensionHelper;
@@ -25,14 +23,16 @@ use Joomla\CMS\Log\Log;
 use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\CMS\Updater\Update;
-use Joomla\CMS\Updater\Update\DataUpdate;
-use Joomla\CMS\Updater\Update\XmlUpdate;
 use Joomla\CMS\Updater\Updater;
 use Joomla\CMS\User\UserHelper;
 use Joomla\CMS\Version;
 use Joomla\Database\ParameterType;
 use Joomla\Registry\Registry;
 use Joomla\Utilities\ArrayHelper;
+
+// phpcs:disable PSR1.Files.SideEffects
+\defined('_JEXEC') or die;
+// phpcs:enable PSR1.Files.SideEffects
 
 /**
  * Joomla! update overview Model
@@ -41,26 +41,26 @@ use Joomla\Utilities\ArrayHelper;
  */
 class UpdateModel extends BaseDatabaseModel
 {
-	/**
-	 * @var   array  $updateInformation  null
-	 * Holds the update information evaluated in getUpdateInformation.
-	 *
-	 * @since 3.10.0
-	 */
-	private $updateInformation = null;
+    /**
+     * @var   array  $updateInformation  null
+     * Holds the update information evaluated in getUpdateInformation.
+     *
+     * @since 3.10.0
+     */
+    private $updateInformation = null;
 
-	/**
-	 * Detects if the Joomla! update site currently in use matches the one
-	 * configured in this component. If they don't match, it changes it.
-	 *
-	 * @return  void
-	 *
-	 * @since    2.5.4
-	 */
-	public function applyUpdateSite()
-	{
-		// Determine the intended update URL.
-		$params = ComponentHelper::getParams('com_joomlaupdate');
+    /**
+     * Detects if the Joomla! update site currently in use matches the one
+     * configured in this component. If they don't match, it changes it.
+     *
+     * @return  void
+     *
+     * @since    2.5.4
+     */
+    public function applyUpdateSite()
+    {
+        // Determine the intended update URL.
+        $params = ComponentHelper::getParams('com_joomlaupdate');
 
 		$updateURL = 'https://raw.githubusercontent.com/joomla/updates/test8/repository/';
 		if ($params->get('updatesource', 'nochange') == 'custom') {
@@ -74,146 +74,131 @@ class UpdateModel extends BaseDatabaseModel
 			}
 		}
 
-		$id = ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id;
-		$db = $this->getDatabase();
-		$query = $db->getQuery(true)
-			->select($db->quoteName('us') . '.*')
-			->from($db->quoteName('#__update_sites_extensions', 'map'))
-			->join(
-				'INNER',
-				$db->quoteName('#__update_sites', 'us'),
-				$db->quoteName('us.update_site_id') . ' = ' . $db->quoteName('map.update_site_id')
-			)
-			->where($db->quoteName('map.extension_id') . ' = :id')
-			->bind(':id', $id, ParameterType::INTEGER);
-		$db->setQuery($query);
-		$update_site = $db->loadObject();
+        $id = ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id;
+        $db = version_compare(JVERSION, '4.2.0', 'lt') ? $this->getDbo() : $this->getDatabase();
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('us') . '.*')
+            ->from($db->quoteName('#__update_sites_extensions', 'map'))
+            ->join(
+                'INNER',
+                $db->quoteName('#__update_sites', 'us'),
+                $db->quoteName('us.update_site_id') . ' = ' . $db->quoteName('map.update_site_id')
+            )
+            ->where($db->quoteName('map.extension_id') . ' = :id')
+            ->bind(':id', $id, ParameterType::INTEGER);
+        $db->setQuery($query);
+        $update_site = $db->loadObject();
 
-		if ($update_site->location != $updateURL)
-		{
-			// Modify the database record.
-			$update_site->last_check_timestamp = 0;
-			$update_site->location = $updateURL;
-			$db->updateObject('#__update_sites', $update_site, 'update_site_id');
+        if ($update_site->location != $updateURL) {
+            // Modify the database record.
+            $update_site->last_check_timestamp = 0;
+            $update_site->location = $updateURL;
+            $db->updateObject('#__update_sites', $update_site, 'update_site_id');
 
-			// Remove cached updates.
-			$query->clear()
-				->delete($db->quoteName('#__updates'))
-				->where($db->quoteName('extension_id') . ' = :id')
-				->bind(':id', $id, ParameterType::INTEGER);
-			$db->setQuery($query);
-			$db->execute();
-		}
-	}
+            // Remove cached updates.
+            $query->clear()
+                ->delete($db->quoteName('#__updates'))
+                ->where($db->quoteName('extension_id') . ' = :id')
+                ->bind(':id', $id, ParameterType::INTEGER);
+            $db->setQuery($query);
+            $db->execute();
+        }
+    }
 
-	/**
-	 * Makes sure that the Joomla! update cache is up-to-date.
-	 *
-	 * @param   boolean  $force  Force reload, ignoring the cache timeout.
-	 *
-	 * @return  void
-	 *
-	 * @since    2.5.4
-	 */
-	public function refreshUpdates($force = false)
-	{
-		if ($force)
-		{
-			$cache_timeout = 0;
-		}
-		else
-		{
-			$update_params = ComponentHelper::getParams('com_installer');
-			$cache_timeout = (int) $update_params->get('cachetimeout', 6);
-			$cache_timeout = 3600 * $cache_timeout;
-		}
+    /**
+     * Makes sure that the Joomla! update cache is up-to-date.
+     *
+     * @param   boolean  $force  Force reload, ignoring the cache timeout.
+     *
+     * @return  void
+     *
+     * @since    2.5.4
+     */
+    public function refreshUpdates($force = false)
+    {
+        if ($force) {
+            $cache_timeout = 0;
+        } else {
+            $update_params = ComponentHelper::getParams('com_installer');
+            $cache_timeout = (int) $update_params->get('cachetimeout', 6);
+            $cache_timeout = 3600 * $cache_timeout;
+        }
 
-		$updater               = Updater::getInstance();
-		$minimumStability      = Updater::STABILITY_STABLE;
-		$comJoomlaupdateParams = ComponentHelper::getParams('com_joomlaupdate');
+        $updater               = Updater::getInstance();
+        $minimumStability      = Updater::STABILITY_STABLE;
+        $comJoomlaupdateParams = ComponentHelper::getParams('com_joomlaupdate');
 
-		if (in_array($comJoomlaupdateParams->get('updatesource', 'nochange'), array('testing', 'custom')))
-		{
-			$minimumStability = $comJoomlaupdateParams->get('minimum_stability', Updater::STABILITY_STABLE);
-		}
+        if (in_array($comJoomlaupdateParams->get('updatesource', 'nochange'), array('testing', 'custom'))) {
+            $minimumStability = $comJoomlaupdateParams->get('minimum_stability', Updater::STABILITY_STABLE);
+        }
 
-		$reflection = new \ReflectionObject($updater);
-		$reflectionMethod = $reflection->getMethod('findUpdates');
-		$methodParameters = $reflectionMethod->getParameters();
+        $reflection = new \ReflectionObject($updater);
+        $reflectionMethod = $reflection->getMethod('findUpdates');
+        $methodParameters = $reflectionMethod->getParameters();
 
-		if (count($methodParameters) >= 4)
-		{
-			// Reinstall support is available in Updater
-			$updater->findUpdates(ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id, $cache_timeout, $minimumStability, true);
-		}
-		else
-		{
-			$updater->findUpdates(ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id, $cache_timeout, $minimumStability);
-		}
-	}
+        if (count($methodParameters) >= 4) {
+            // Reinstall support is available in Updater
+            $updater->findUpdates(ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id, $cache_timeout, $minimumStability, true);
+        } else {
+            $updater->findUpdates(ExtensionHelper::getExtensionRecord('joomla', 'file')->extension_id, $cache_timeout, $minimumStability);
+        }
+    }
 
-	/**
-	 * Makes sure that the Joomla! Update Component Update is in the database and check if there is a new version.
-	 *
-	 * @return  boolean  True if there is an update else false
-	 *
-	 * @since   4.0.0
-	 */
-	public function getCheckForSelfUpdate()
-	{
-		$db = $this->getDatabase();
+    /**
+     * Makes sure that the Joomla! Update Component Update is in the database and check if there is a new version.
+     *
+     * @return  boolean  True if there is an update else false
+     *
+     * @since   4.0.0
+     */
+    public function getCheckForSelfUpdate()
+    {
+        $db = version_compare(JVERSION, '4.2.0', 'lt') ? $this->getDbo() : $this->getDatabase();
 
-		$query = $db->getQuery(true)
-			->select($db->quoteName('extension_id'))
-			->from($db->quoteName('#__extensions'))
-			->where($db->quoteName('element') . ' = ' . $db->quote('com_joomlaupdate'));
-		$db->setQuery($query);
+        $query = $db->getQuery(true)
+            ->select($db->quoteName('extension_id'))
+            ->from($db->quoteName('#__extensions'))
+            ->where($db->quoteName('element') . ' = ' . $db->quote('com_joomlaupdate'));
+        $db->setQuery($query);
 
-		try
-		{
-			// Get the component extension ID
-			$joomlaUpdateComponentId = $db->loadResult();
-		}
-		catch (\RuntimeException $e)
-		{
-			// Something is wrong here!
-			$joomlaUpdateComponentId = 0;
-			Factory::getApplication()->enqueueMessage($e->getMessage(), 'error');
-		}
+        try {
+            // Get the component extension ID
+            $joomlaUpdateComponentId = $db->loadResult();
+        } catch (\RuntimeException $e) {
+            // Something is wrong here!
+            $joomlaUpdateComponentId = 0;
+            Factory::getApplication()->enqueueMessage($e->getMessage(), 'error');
+        }
 
-		// Try the update only if we have an extension id
-		if ($joomlaUpdateComponentId != 0)
-		{
-			// Always force to check for an update!
-			$cache_timeout = 0;
+        // Try the update only if we have an extension id
+        if ($joomlaUpdateComponentId != 0) {
+            // Always force to check for an update!
+            $cache_timeout = 0;
 
-			$updater = Updater::getInstance();
-			$updater->findUpdates($joomlaUpdateComponentId, $cache_timeout, Updater::STABILITY_STABLE);
+            $updater = Updater::getInstance();
+            $updater->findUpdates($joomlaUpdateComponentId, $cache_timeout, Updater::STABILITY_STABLE);
 
-			// Fetch the update information from the database.
-			$query = $db->getQuery(true)
-				->select('*')
-				->from($db->quoteName('#__updates'))
-				->where($db->quoteName('extension_id') . ' = :id')
-				->bind(':id', $joomlaUpdateComponentId, ParameterType::INTEGER);
-			$db->setQuery($query);
+            // Fetch the update information from the database.
+            $query = $db->getQuery(true)
+                ->select('*')
+                ->from($db->quoteName('#__updates'))
+                ->where($db->quoteName('extension_id') . ' = :id')
+                ->bind(':id', $joomlaUpdateComponentId, ParameterType::INTEGER);
+            $db->setQuery($query);
 
-			try
-			{
-				$joomlaUpdateComponentObject = $db->loadObject();
-			}
-			catch (\RuntimeException $e)
-			{
-				// Something is wrong here!
-				$joomlaUpdateComponentObject = null;
-				Factory::getApplication()->enqueueMessage($e->getMessage(), 'error');
-			}
+            try {
+                $joomlaUpdateComponentObject = $db->loadObject();
+            } catch (\RuntimeException $e) {
+                // Something is wrong here!
+                $joomlaUpdateComponentObject = null;
+                Factory::getApplication()->enqueueMessage($e->getMessage(), 'error');
+            }
 
-			return !empty($joomlaUpdateComponentObject);
-		}
+            return !empty($joomlaUpdateComponentObject);
+        }
 
-		return false;
-	}
+        return false;
+    }
 
 	/**
 	 * Returns an array with the Joomla! update information.

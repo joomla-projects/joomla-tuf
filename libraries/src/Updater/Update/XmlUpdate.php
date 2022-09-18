@@ -8,8 +8,6 @@
 
 namespace Joomla\CMS\Updater\Update;
 
-\defined('JPATH_PLATFORM') or die;
-
 use Joomla\CMS\Factory;
 use Joomla\CMS\Filter\InputFilter;
 use Joomla\CMS\Http\HttpFactory;
@@ -19,6 +17,10 @@ use Joomla\CMS\Updater\DownloadSource;
 use Joomla\CMS\Updater\Updater;
 use Joomla\CMS\Version;
 use Joomla\Registry\Registry;
+
+// phpcs:disable PSR1.Files.SideEffects
+\defined('JPATH_PLATFORM') or die;
+// phpcs:enable PSR1.Files.SideEffects
 
 /**
  * Update class. It is used by Updater::update() to install an update. Use Updater::findUpdates() to find updates for
@@ -52,17 +54,56 @@ class XmlUpdate extends AbstractUpdate
 	 */
 	protected $stateStore = array();
 
-	/**
-	 * Gets the reference to the current direct parent
-	 *
-	 * @return  string
-	 *
-	 * @since   1.7.0
-	 */
-	protected function _getStackLocation()
-	{
-		return implode('->', $this->stack);
-	}
+    /**
+     * Object containing the current update data
+     *
+     * @var    \stdClass
+     * @since  3.0.0
+     */
+    protected $currentUpdate;
+
+    /**
+     * Object containing the latest update data
+     *
+     * @var    \stdClass
+     * @since  3.0.0
+     */
+    protected $latest;
+
+    /**
+     * The minimum stability required for updates to be taken into account. The possible values are:
+     * 0    dev         Development snapshots, nightly builds, pre-release versions and so on
+     * 1    alpha       Alpha versions (work in progress, things are likely to be broken)
+     * 2    beta        Beta versions (major functionality in place, show-stopper bugs are likely to be present)
+     * 3    rc          Release Candidate versions (almost stable, minor bugs might be present)
+     * 4    stable      Stable versions (production quality code)
+     *
+     * @var    integer
+     * @since  14.1
+     *
+     * @see    Updater
+     */
+    protected $minimum_stability = Updater::STABILITY_STABLE;
+
+    /**
+     * Array with compatible versions used by the pre-update check
+     *
+     * @var    array
+     * @since  3.10.2
+     */
+    protected $compatibleVersions = array();
+
+    /**
+     * Gets the reference to the current direct parent
+     *
+     * @return  string
+     *
+     * @since   1.7.0
+     */
+    protected function _getStackLocation()
+    {
+        return implode('->', $this->stack);
+    }
 
 	/**
 	 * Get the last position in stack count
