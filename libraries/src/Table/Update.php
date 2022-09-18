@@ -27,7 +27,7 @@ class Update extends Table
 	 * @var    array
 	 * @since  4.0.0
 	 */
-	protected $_jsonEncode = ['params'];
+	protected $_jsonEncode = ['data'];
 
 	/**
 	 * Constructor

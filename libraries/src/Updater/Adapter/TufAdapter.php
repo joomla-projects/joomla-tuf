@@ -126,11 +126,14 @@ class TufAdapter extends UpdateAdapter
 			];
 			for ($i = 0; $i < count($params_mirrors); $i++) {
 				if ($i == 0) {
-					$params = $this->buildMirrorArray($params_mirrors[$i]);
-					$params['mirrors'] = [];
+					$params['url_prefix'] = $params_mirrors[$i];
 				} else {
-					$mirror = $this->buildMirrorArray($params_mirrors[$i]);
-					$mirror['confined_target_dirs'] = [];
+					$mirror = [
+						'url_prefix' => $params_mirrors[$i],
+						'metadata_path' => '',
+						'targets_path' => '',
+						'confined_target_dirs' => []
+					];
 					array_push($params['mirrors'], $mirror);
 				}
 			}
@@ -168,6 +171,13 @@ class TufAdapter extends UpdateAdapter
 					continue;
 				}
 
+				$values['data'] = [
+					'downloads' => $values['downloads'],
+					'targetplatform' => $values['targetplatform'],
+					'supported_databases' => $values['supported_databases'],
+					'hashes' => $target->hashes
+				];
+
 				$versions[$values['version']] = $values;
 			}
 
@@ -204,7 +214,7 @@ class TufAdapter extends UpdateAdapter
 				'description' => '',
 				'element' => '',
 				'type' => null,
-				'client' => 1,
+				'client' => 0,
 				'version' => "1",
 				'data' => '',
 				'detailsurl' => '',
@@ -231,26 +241,5 @@ class TufAdapter extends UpdateAdapter
 			->setAllowedTypes('supported_databases', 'object')
 			->setAllowedTypes('stability', 'string')
 			->setRequired(['version']);
-	}
-
-	/**
-	 * @param string $mirror the mirror string
-	 * @return array the mirror array
-	 */
-	private function buildMirrorArray(string $mirror): array
-	{
-		$url_parts = explode('/', $mirror);
-		$url_prefix = $url_parts[0] . '' . $url_parts[1] . '//' . $url_parts[2];
-		$metadata_path = '';
-		for ($i = 3; $i < count($url_parts) - 2; $i++) {
-			$metadata_path = $metadata_path . '/' . $url_parts[$i];
-		}
-		$metadata_path = $metadata_path . '/';
-		$targets_path = '/' . $url_parts[count($url_parts) - 2] . '/';
-		return [
-			'url_prefix' => $url_prefix,
-			'metadata_path' => $metadata_path,
-			'targets_path' => $targets_path
-		];
 	}
 }

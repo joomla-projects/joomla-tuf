@@ -25,6 +25,8 @@ use Joomla\CMS\Log\Log;
 use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\CMS\Updater\Update;
+use Joomla\CMS\Updater\Update\DataUpdate;
+use Joomla\CMS\Updater\Update\XmlUpdate;
 use Joomla\CMS\Updater\Updater;
 use Joomla\CMS\User\UserHelper;
 use Joomla\CMS\Version;
@@ -60,7 +62,7 @@ class UpdateModel extends BaseDatabaseModel
 		// Determine the intended update URL.
 		$params = ComponentHelper::getParams('com_joomlaupdate');
 
-		$updateURL = 'https://raw.githubusercontent.com/joomla/updates/test/repository/targets/';
+		$updateURL = 'https://raw.githubusercontent.com/joomla/updates/test8/repository/';
 		if ($params->get('updatesource', 'nochange') == 'custom') {
 			$paramsURL = $params->get('customurl', '');
 			if (trim($paramsURL) != '') {
@@ -281,8 +283,13 @@ class UpdateModel extends BaseDatabaseModel
 		}
 
 		// Fetch the full update details from the update details URL.
-		$update = new Update;
-		$update->loadFromXml($updateObject->detailsurl, $minimumStability);
+		if (empty($updateObject->data)) {
+			$update = new XmlUpdate();
+			$update->loadFromXml($updateObject->detailsurl, $minimumStability);
+		} else {
+			$update = new DataUpdate();
+			$update->loadFromData($updateObject, $minimumStability);
+		}
 
 		$this->updateInformation['object'] = $update;
 
