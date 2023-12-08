@@ -1,5 +1,4 @@
 <?php
-
 /**
  * Joomla! Content Management System
  *
@@ -26,12 +25,12 @@ use Joomla\Event\DispatcherInterface;
 class Update extends Table
 {
     /**
-     * Ensure the params in json encoded in the bind method
+     * Ensure the data in json encoded in the bind method
      *
      * @var    array
-     * @since  4.0.0
+     * @since  __DEPLOY_VERSION__
      */
-    protected $_jsonEncode = ['params'];
+    protected $_jsonEncode = ['data'];
 
     /**
      * Constructor
@@ -86,7 +85,7 @@ class Update extends Table
     /**
      * Method to create and execute a SELECT WHERE query.
      *
-     * @param   array  $options  Array of options
+     * @param array $options Array of options
      *
      * @return  string  Results of query
      *
