@@ -14,8 +14,11 @@ use Joomla\CMS\Updater\Updater;
 
 \defined('JPATH_PLATFORM') or die;
 
-abstract class AbstractUpdate extends CMSObject implements UpdateInterface
+abstract class AbstractUpdate implements UpdateInterface
 {
+    use LegacyErrorHandlingTrait;
+    use LegacyPropertyManagementTrait;
+
     /**
      * Update manifest `<name>` element
      *
